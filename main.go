@@ -14,7 +14,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.1.0"
+var Version = "0.1.1"
 
 // App represents the application with dependency injection
 // No global variables - following Dave Cheney's principles
@@ -30,10 +30,32 @@ type ProcessRecord struct {
 	Timestamp time.Time
 }
 
+// ResourceRecord represents detailed process resource usage
+type ResourceRecord struct {
+	Name        string
+	Timestamp   time.Time
+	CPUPercent  float64   // CPU usage percentage
+	MemoryMB    float64   // Memory usage in MB
+	Threads     int32     // Number of threads
+}
+
 // ProcessStats represents accumulated process statistics
 type ProcessStats struct {
-	Name  string
-	Count int
+	Name      string
+	Count     int
+	CPUTotal  float64 // Total CPU usage percentage
+	MemoryAvg float64 // Average memory usage in MB
+}
+
+// ResourceStats represents accumulated resource statistics
+type ResourceStats struct {
+	Name        string
+	Samples     int     // Number of samples
+	CPUAvg      float64 // Average CPU percentage
+	CPUMax      float64 // Maximum CPU percentage
+	MemoryAvg   float64 // Average memory in MB
+	MemoryMax   float64 // Maximum memory in MB
+	ThreadsAvg  float64 // Average thread count
 }
 
 // NewApp creates a new App instance with dependency injection
@@ -110,15 +132,15 @@ func (a *App) startMonitoring() {
 }
 
 func (a *App) monitorAndSave() error {
-	// Get current processes
-	processes, err := a.getCurrentProcesses()
+	// Get current processes with resource usage
+	resources, err := a.getCurrentResources()
 	if err != nil {
-		return fmt.Errorf("failed to get processes: %w", err)
+		return fmt.Errorf("failed to get resources: %w", err)
 	}
 
 	// Save to file
-	if err := a.saveProcesses(processes); err != nil {
-		return fmt.Errorf("failed to save processes: %w", err)
+	if err := a.saveResources(resources); err != nil {
+		return fmt.Errorf("failed to save resources: %w", err)
 	}
 
 	return nil
@@ -153,6 +175,62 @@ func (a *App) getCurrentProcesses() ([]ProcessRecord, error) {
 		records = append(records, ProcessRecord{
 			Name:      name,
 			Timestamp: time.Now(),
+		})
+	}
+
+	return records, nil
+}
+
+func (a *App) getCurrentResources() ([]ResourceRecord, error) {
+	processes, err := process.Processes()
+	if err != nil {
+		return nil, err
+	}
+
+	var records []ResourceRecord
+	for _, p := range processes {
+		name, err := p.Name()
+		if err != nil {
+			continue // Skip processes we can't read
+		}
+
+		name = strings.TrimSpace(name)
+		if name == "" || p.Pid <= 0 {
+			continue // Skip invalid processes
+		}
+
+		// Skip obvious system processes
+		if a.isSystemProcess(name) {
+			continue
+		}
+
+		// Normalize process name
+		name = a.normalizeProcessName(name)
+
+		// Get CPU percentage
+		cpuPercent, err := p.Percent(0)
+		if err != nil {
+			cpuPercent = 0.0
+		}
+
+		// Get memory information
+		var memoryMB float64 = 0.0
+		if memInfo, err := p.MemoryInfo(); err == nil {
+			memoryMB = float64(memInfo.RSS) / 1024 / 1024 // Convert to MB
+		}
+
+		// Get thread count
+		threads, err := p.NumThreads()
+		if err != nil {
+			threads = 1
+		}
+
+		records = append(records, ResourceRecord{
+			Name:       name,
+			Timestamp:  time.Now(),
+			CPUPercent: cpuPercent,
+			MemoryMB:   memoryMB,
+			Threads:    threads,
 		})
 	}
 
@@ -238,6 +316,39 @@ func (a *App) saveProcesses(processes []ProcessRecord) error {
 	// Write each process record
 	for _, process := range processes {
 		line := fmt.Sprintf("%s,%s\n", process.Timestamp.Format(time.RFC3339), process.Name)
+		if _, err := file.WriteString(line); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *App) saveResources(resources []ResourceRecord) error {
+	// Expand the data file path (use .resources extension for new format)
+	expandedPath := os.ExpandEnv(a.dataFile)
+	resourcePath := expandedPath + ".resources"
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(resourcePath), 0755); err != nil {
+		return err
+	}
+
+	// Open file for appending
+	file, err := os.OpenFile(resourcePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write each resource record in CSV format
+	for _, resource := range resources {
+		line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d\n",
+			resource.Timestamp.Format(time.RFC3339),
+			resource.Name,
+			resource.CPUPercent,
+			resource.MemoryMB,
+			resource.Threads)
 		if _, err := file.WriteString(line); err != nil {
 			return err
 		}
