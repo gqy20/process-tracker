@@ -15,7 +15,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.1.4"
+var Version = "0.1.5"
 
 // App represents the application with dependency injection
 // No global variables - following Dave Cheney's principles
@@ -57,6 +57,7 @@ type ProcessStats struct {
 type ResourceStats struct {
 	Name         string
 	Samples      int     // Number of samples
+	ActiveSamples int     // Number of active samples
 	CPUAvg       float64 // Average CPU percentage
 	CPUMax       float64 // Maximum CPU percentage
 	MemoryAvg    float64 // Average memory in MB
@@ -66,6 +67,7 @@ type ResourceStats struct {
 	DiskWriteAvg float64 // Average disk write in MB
 	NetSentAvg   float64 // Average network sent in KB
 	NetRecvAvg   float64 // Average network received in KB
+	ActiveTime   time.Duration // Total active time based on interval
 }
 
 // NewApp creates a new App instance with dependency injection
@@ -344,6 +346,88 @@ func (a *App) readResourceRecords(filePath string) ([]ResourceRecord, error) {
 	return records, nil
 }
 
+// calculateResourceStats calculates detailed resource statistics for a period
+func (a *App) calculateResourceStats(period time.Duration) ([]ResourceStats, error) {
+	expandedPath := os.ExpandEnv(a.dataFile + ".resources")
+	
+	// Read resource records with automatic format detection
+	records, err := a.readResourceRecords(expandedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []ResourceStats{}, nil // No data file yet
+		}
+		return nil, err
+	}
+
+	// Calculate cutoff time
+	cutoff := time.Now().Add(-period)
+
+	// Group records by process name
+	processRecords := make(map[string][]ResourceRecord)
+	for _, record := range records {
+		if record.Timestamp.After(cutoff) {
+			processRecords[record.Name] = append(processRecords[record.Name], record)
+		}
+	}
+
+	// Calculate statistics for each process
+	var stats []ResourceStats
+	for name, records := range processRecords {
+		if len(records) == 0 {
+			continue
+		}
+
+		var stat ResourceStats
+		stat.Name = name
+		stat.Samples = len(records)
+		
+		var cpuTotal, memoryTotal, threadsTotal, diskReadTotal, diskWriteTotal, netSentTotal, netRecvTotal float64
+		var cpuMax, memoryMax float64
+		var activeSamples int
+
+		for _, record := range records {
+			cpuTotal += record.CPUPercent
+			memoryTotal += record.MemoryMB
+			threadsTotal += float64(record.Threads)
+			diskReadTotal += record.DiskReadMB
+			diskWriteTotal += record.DiskWriteMB
+			netSentTotal += record.NetSentKB
+			netRecvTotal += record.NetRecvKB
+
+			if record.CPUPercent > cpuMax {
+				cpuMax = record.CPUPercent
+			}
+			if record.MemoryMB > memoryMax {
+				memoryMax = record.MemoryMB
+			}
+			if record.IsActive {
+				activeSamples++
+			}
+		}
+
+		stat.ActiveSamples = activeSamples
+		stat.CPUAvg = cpuTotal / float64(len(records))
+		stat.CPUMax = cpuMax
+		stat.MemoryAvg = memoryTotal / float64(len(records))
+		stat.MemoryMax = memoryMax
+		stat.ThreadsAvg = threadsTotal / float64(len(records))
+		stat.DiskReadAvg = diskReadTotal / float64(len(records))
+		stat.DiskWriteAvg = diskWriteTotal / float64(len(records))
+		stat.NetSentAvg = netSentTotal / float64(len(records))
+		stat.NetRecvAvg = netRecvTotal / float64(len(records))
+		stat.ActiveTime = time.Duration(activeSamples) * a.interval
+
+		stats = append(stats, stat)
+	}
+
+	// Sort by active time (descending)
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].ActiveTime > stats[j].ActiveTime
+	})
+
+	return stats, nil
+}
+
 func main() {
 	// Hardcoded configuration - simple and explicit
 	const dataFile = "$HOME/.process-tracker.log"
@@ -367,6 +451,8 @@ func main() {
 		app.showTodayStats()
 	case "week":
 		app.showWeekStats()
+	case "details":
+		app.showDetailedStats()
 	case "help":
 		app.printUsage()
 	default:
@@ -384,12 +470,14 @@ func (a *App) printUsage() {
 	fmt.Println("  start    开始监控进程")
 	fmt.Println("  today    显示今日使用统计")
 	fmt.Println("  week     显示本周使用统计")
+	fmt.Println("  details  显示详细资源使用统计")
 	fmt.Println("  version  显示版本信息")
 	fmt.Println("  help     显示此帮助信息")
 	fmt.Println()
 	fmt.Println("示例:")
 	fmt.Println("  process-tracker start")
 	fmt.Println("  process-tracker today")
+	fmt.Println("  process-tracker details")
 }
 
 func (a *App) startMonitoring() {
@@ -754,6 +842,60 @@ func (a *App) displayStats(title string, stats []ProcessStats) {
 	fmt.Println()
 	fmt.Printf("总监控间隔数: %d\n", totalCount)
 	fmt.Printf("估算总时间: %s\n", formatDuration(time.Duration(totalCount)*a.interval))
+}
+
+func (a *App) showDetailedStats() {
+	stats, err := a.calculateResourceStats(24 * time.Hour)
+	if err != nil {
+		log.Fatalf("获取详细统计数据失败: %v", err)
+	}
+
+	a.displayDetailedStats("今日详细资源使用统计", stats)
+}
+
+func (a *App) displayDetailedStats(title string, stats []ResourceStats) {
+	fmt.Printf("=== %s ===\n", title)
+	fmt.Printf("生成时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Println()
+
+	if len(stats) == 0 {
+		fmt.Println("未找到使用数据。")
+		fmt.Println("请确保监控正在运行: 'process-tracker start'")
+		return
+	}
+
+	// 显示前15个进程（详细信息需要更多空间）
+	maxDisplay := 15
+	if len(stats) < maxDisplay {
+		maxDisplay = len(stats)
+	}
+
+	fmt.Printf("%-30s %8s %8s %8s %8s %8s %8s %10s %10s %10s\n", 
+		"进程名", "活跃度", "样本数", "CPU平均", "CPU峰值", "内存平均", "内存峰值", "磁盘读", "磁盘写", "活跃时间")
+	fmt.Printf("%s\n", strings.Repeat("-", 130))
+
+	totalActiveTime := time.Duration(0)
+	for i := 0; i < maxDisplay; i++ {
+		stat := stats[i]
+		activeRate := float64(stat.ActiveSamples) / float64(stat.Samples) * 100
+		
+		fmt.Printf("%-30s %7.1f%% %8d %7.1f%% %7.1f%% %7.1fMB %7.1fMB %8.2fMB %8.2fMB %10s\n",
+			stat.Name,
+			activeRate,
+			stat.Samples,
+			stat.CPUAvg,
+			stat.CPUMax,
+			stat.MemoryAvg,
+			stat.MemoryMax,
+			stat.DiskReadAvg,
+			stat.DiskWriteAvg,
+			formatDuration(stat.ActiveTime))
+		
+		totalActiveTime += stat.ActiveTime
+	}
+
+	fmt.Printf("%s\n", strings.Repeat("-", 130))
+	fmt.Printf("总活跃时间: %s\n", formatDuration(totalActiveTime))
 }
 
 func formatDuration(d time.Duration) string {
