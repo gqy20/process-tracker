@@ -1,0 +1,22 @@
+[Unit]
+Description=Process Tracker - Application Usage Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/local/bin/process-tracker start
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/%i/.config/process-tracker
+
+[Install]
+WantedBy=multi-user.target
