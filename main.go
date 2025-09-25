@@ -14,7 +14,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.1.2"
+var Version = "0.1.3"
 
 // App represents the application with dependency injection
 // No global variables - following Dave Cheney's principles
@@ -41,6 +41,7 @@ type ResourceRecord struct {
 	DiskWriteMB float64   // Disk write in MB
 	NetSentKB   float64   // Network sent in KB
 	NetRecvKB   float64   // Network received in KB
+	IsActive    bool      // Process is actively being used
 }
 
 // ProcessStats represents accumulated process statistics
@@ -73,6 +74,50 @@ func NewApp(dataFile string, interval time.Duration) *App {
 		dataFile: dataFile,
 		interval: interval,
 	}
+}
+
+// ActivityConfig defines thresholds for active detection
+type ActivityConfig struct {
+	CPUThreshold    float64 // Minimum CPU percentage to be considered active
+	MemoryThreshold float64 // Minimum memory change in MB
+	DiskThreshold   float64 // Minimum disk I/O in MB
+	NetThreshold    float64 // Minimum network activity in KB
+}
+
+// Default activity thresholds
+func (a *App) getDefaultActivityConfig() ActivityConfig {
+	return ActivityConfig{
+		CPUThreshold:    1.0,    // 1% CPU usage
+		MemoryThreshold: 0.5,    // 0.5MB memory change
+		DiskThreshold:   0.1,    // 0.1MB disk I/O
+		NetThreshold:    1.0,    // 1KB network activity
+	}
+}
+
+// isActive determines if a process is actively being used
+func (a *App) isActive(resource ResourceRecord, config ActivityConfig) bool {
+	// Check CPU usage
+	if resource.CPUPercent >= config.CPUThreshold {
+		return true
+	}
+	
+	// Check disk I/O activity
+	if resource.DiskReadMB >= config.DiskThreshold || resource.DiskWriteMB >= config.DiskThreshold {
+		return true
+	}
+	
+	// Check network activity
+	if resource.NetSentKB >= config.NetThreshold || resource.NetRecvKB >= config.NetThreshold {
+		return true
+	}
+	
+	// Note: Memory threshold comparison would require tracking previous values
+	// For now, we consider significant memory usage as active
+	if resource.MemoryMB >= 50.0 { // Processes using >50MB memory
+		return true
+	}
+	
+	return false
 }
 
 func main() {
@@ -253,7 +298,8 @@ func (a *App) getCurrentResources() ([]ResourceRecord, error) {
 			}
 		}
 
-		records = append(records, ResourceRecord{
+		// Create resource record
+		resource := ResourceRecord{
 			Name:        name,
 			Timestamp:   time.Now(),
 			CPUPercent:  cpuPercent,
@@ -263,7 +309,14 @@ func (a *App) getCurrentResources() ([]ResourceRecord, error) {
 			DiskWriteMB: diskWriteMB,
 			NetSentKB:   netSentKB,
 			NetRecvKB:   netRecvKB,
-		})
+			IsActive:    false, // Will be set below
+		}
+
+		// Determine if process is active
+		config := a.getDefaultActivityConfig()
+		resource.IsActive = a.isActive(resource, config)
+
+		records = append(records, resource)
 	}
 
 	return records, nil
@@ -375,7 +428,7 @@ func (a *App) saveResources(resources []ResourceRecord) error {
 
 	// Write each resource record in CSV format
 	for _, resource := range resources {
-		line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f\n",
+		line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%t\n",
 			resource.Timestamp.Format(time.RFC3339),
 			resource.Name,
 			resource.CPUPercent,
@@ -384,7 +437,8 @@ func (a *App) saveResources(resources []ResourceRecord) error {
 			resource.DiskReadMB,
 			resource.DiskWriteMB,
 			resource.NetSentKB,
-			resource.NetRecvKB)
+			resource.NetRecvKB,
+			resource.IsActive)
 		if _, err := file.WriteString(line); err != nil {
 			return err
 		}
