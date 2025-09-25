@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.1.3"
+var Version = "0.1.4"
 
 // App represents the application with dependency injection
 // No global variables - following Dave Cheney's principles
@@ -84,6 +85,12 @@ type ActivityConfig struct {
 	NetThreshold    float64 // Minimum network activity in KB
 }
 
+// Data format versions
+const (
+	DataFormatV1 = 1 // v0.1.2 format: 9 fields (timestamp,name,cpu,memory,threads,diskRead,diskWrite,netSent,netRecv)
+	DataFormatV2 = 2 // v0.1.3+ format: 10 fields (adds isActive)
+)
+
 // Default activity thresholds
 func (a *App) getDefaultActivityConfig() ActivityConfig {
 	return ActivityConfig{
@@ -118,6 +125,223 @@ func (a *App) isActive(resource ResourceRecord, config ActivityConfig) bool {
 	}
 	
 	return false
+}
+
+// detectDataFormat detects the data format version from a resource file
+func (a *App) detectDataFormat(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DataFormatV2, nil // No file yet, use latest format
+		}
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Split(line, ",")
+		if len(fields) == 9 {
+			return DataFormatV1, nil // v0.1.2 format
+		} else if len(fields) == 10 {
+			return DataFormatV2, nil // v0.1.3+ format
+		}
+		// Continue checking other lines - mixed format files
+	}
+
+	// If we get here, check if we found any valid format
+	// Default to latest format if empty or only invalid lines
+	return DataFormatV2, nil
+}
+
+// parseResourceLineV1 parses v0.1.2 format (9 fields)
+func (a *App) parseResourceLineV1(line string) (ResourceRecord, error) {
+	fields := strings.Split(line, ",")
+	if len(fields) != 9 {
+		return ResourceRecord{}, fmt.Errorf("invalid v0.1.2 format: expected 9 fields, got %d", len(fields))
+	}
+
+	timestamp, err := time.Parse(time.RFC3339, fields[0])
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid timestamp: %w", err)
+	}
+
+	cpuPercent, err := strconv.ParseFloat(fields[2], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid CPU percent: %w", err)
+	}
+
+	memoryMB, err := strconv.ParseFloat(fields[3], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid memory MB: %w", err)
+	}
+
+	threads, err := strconv.ParseInt(fields[4], 10, 32)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid threads: %w", err)
+	}
+
+	diskReadMB, err := strconv.ParseFloat(fields[5], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid disk read MB: %w", err)
+	}
+
+	diskWriteMB, err := strconv.ParseFloat(fields[6], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid disk write MB: %w", err)
+	}
+
+	netSentKB, err := strconv.ParseFloat(fields[7], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid net sent KB: %w", err)
+	}
+
+	netRecvKB, err := strconv.ParseFloat(fields[8], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid net recv KB: %w", err)
+	}
+
+	// For v0.1.2 format, determine active status
+	resource := ResourceRecord{
+		Name:        fields[1],
+		Timestamp:   timestamp,
+		CPUPercent:  cpuPercent,
+		MemoryMB:    memoryMB,
+		Threads:     int32(threads),
+		DiskReadMB:  diskReadMB,
+		DiskWriteMB: diskWriteMB,
+		NetSentKB:   netSentKB,
+		NetRecvKB:   netRecvKB,
+		IsActive:    false, // Will be set below
+	}
+
+	// Determine active status for old data
+	config := a.getDefaultActivityConfig()
+	resource.IsActive = a.isActive(resource, config)
+
+	return resource, nil
+}
+
+// parseResourceLineV2 parses v0.1.3+ format (10 fields)
+func (a *App) parseResourceLineV2(line string) (ResourceRecord, error) {
+	fields := strings.Split(line, ",")
+	if len(fields) != 10 {
+		return ResourceRecord{}, fmt.Errorf("invalid v0.1.3+ format: expected 10 fields, got %d", len(fields))
+	}
+
+	timestamp, err := time.Parse(time.RFC3339, fields[0])
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid timestamp: %w", err)
+	}
+
+	cpuPercent, err := strconv.ParseFloat(fields[2], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid CPU percent: %w", err)
+	}
+
+	memoryMB, err := strconv.ParseFloat(fields[3], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid memory MB: %w", err)
+	}
+
+	threads, err := strconv.ParseInt(fields[4], 10, 32)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid threads: %w", err)
+	}
+
+	diskReadMB, err := strconv.ParseFloat(fields[5], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid disk read MB: %w", err)
+	}
+
+	diskWriteMB, err := strconv.ParseFloat(fields[6], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid disk write MB: %w", err)
+	}
+
+	netSentKB, err := strconv.ParseFloat(fields[7], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid net sent KB: %w", err)
+	}
+
+	netRecvKB, err := strconv.ParseFloat(fields[8], 64)
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid net recv KB: %w", err)
+	}
+
+	isActive, err := strconv.ParseBool(fields[9])
+	if err != nil {
+		return ResourceRecord{}, fmt.Errorf("invalid active status: %w", err)
+	}
+
+	return ResourceRecord{
+		Name:        fields[1],
+		Timestamp:   timestamp,
+		CPUPercent:  cpuPercent,
+		MemoryMB:    memoryMB,
+		Threads:     int32(threads),
+		DiskReadMB:  diskReadMB,
+		DiskWriteMB: diskWriteMB,
+		NetSentKB:   netSentKB,
+		NetRecvKB:   netRecvKB,
+		IsActive:    isActive,
+	}, nil
+}
+
+// readResourceRecords reads resource records with automatic format detection
+func (a *App) readResourceRecords(filePath string) ([]ResourceRecord, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []ResourceRecord{}, nil // No data file yet
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var records []ResourceRecord
+	scanner := bufio.NewScanner(file)
+	lineNumber := 0
+
+	for scanner.Scan() {
+		lineNumber++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var record ResourceRecord
+		var parseErr error
+
+		// Try to parse based on field count (handle mixed format files)
+		fields := strings.Split(line, ",")
+		if len(fields) == 9 {
+			record, parseErr = a.parseResourceLineV1(line)
+		} else if len(fields) == 10 {
+			record, parseErr = a.parseResourceLineV2(line)
+		} else {
+			log.Printf("Warning: line %d has invalid field count: %d", lineNumber, len(fields))
+			continue
+		}
+
+		if parseErr != nil {
+			log.Printf("Warning: failed to parse line %d: %v", lineNumber, parseErr)
+			continue
+		}
+
+		records = append(records, record)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading file: %w", err)
+	}
+
+	return records, nil
 }
 
 func main() {
@@ -466,53 +690,26 @@ func (a *App) showWeekStats() {
 }
 
 func (a *App) getStatsForPeriod(period time.Duration) ([]ProcessStats, error) {
-	expandedPath := os.ExpandEnv(a.dataFile)
+	expandedPath := os.ExpandEnv(a.dataFile + ".resources")
 	
-	// Open file for reading
-	file, err := os.Open(expandedPath)
+	// Read resource records with automatic format detection
+	records, err := a.readResourceRecords(expandedPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []ProcessStats{}, nil // No data file yet
 		}
 		return nil, err
 	}
-	defer file.Close()
 
 	// Calculate cutoff time
 	cutoff := time.Now().Add(-period)
 
-	// Read and parse file
-	scanner := bufio.NewScanner(file)
+	// Count active processes within the period
 	processCount := make(map[string]int)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
+	for _, record := range records {
+		if record.Timestamp.After(cutoff) && record.IsActive {
+			processCount[record.Name]++
 		}
-
-		parts := strings.SplitN(line, ",", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		timestampStr := parts[0]
-		processName := parts[1]
-
-		// Parse timestamp
-		timestamp, err := time.Parse(time.RFC3339, timestampStr)
-		if err != nil {
-			continue
-		}
-
-		// Only count records within the period
-		if timestamp.After(cutoff) {
-			processCount[processName]++
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
 	}
 
 	// Convert to slice for sorting
