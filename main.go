@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.1.5"
+var Version = "0.2.0"
 
 // App represents the application with dependency injection
 // No global variables - following Dave Cheney's principles
@@ -451,8 +452,12 @@ func main() {
 		app.showTodayStats()
 	case "week":
 		app.showWeekStats()
+	case "month":
+		app.showMonthStats()
 	case "details":
 		app.showDetailedStats()
+	case "cleanup":
+		app.cleanupOldData()
 	case "help":
 		app.printUsage()
 	default:
@@ -470,14 +475,18 @@ func (a *App) printUsage() {
 	fmt.Println("  start    开始监控进程")
 	fmt.Println("  today    显示今日使用统计")
 	fmt.Println("  week     显示本周使用统计")
+	fmt.Println("  month    显示本月使用统计")
 	fmt.Println("  details  显示详细资源使用统计")
+	fmt.Println("  cleanup  清理30天前的旧数据")
 	fmt.Println("  version  显示版本信息")
 	fmt.Println("  help     显示此帮助信息")
 	fmt.Println()
 	fmt.Println("示例:")
 	fmt.Println("  process-tracker start")
 	fmt.Println("  process-tracker today")
+	fmt.Println("  process-tracker month")
 	fmt.Println("  process-tracker details")
+	fmt.Println("  process-tracker cleanup")
 }
 
 func (a *App) startMonitoring() {
@@ -775,6 +784,125 @@ func (a *App) showWeekStats() {
 	}
 
 	a.displayStats("本周使用统计", stats)
+}
+
+func (a *App) showMonthStats() {
+	stats, err := a.getStatsForPeriod(30 * 24 * time.Hour)
+	if err != nil {
+		log.Fatalf("获取本月统计数据失败: %v", err)
+	}
+
+	a.displayStats("本月使用统计", stats)
+}
+
+func (a *App) cleanupOldData() {
+	fmt.Println("清理30天前的旧数据...")
+	
+	expandedPath := os.ExpandEnv(a.dataFile + ".resources")
+	
+	// Read existing records
+	records, err := a.readResourceRecords(expandedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("没有找到数据文件。")
+			return
+		}
+		log.Fatalf("读取数据文件失败: %v", err)
+	}
+
+	if len(records) == 0 {
+		fmt.Println("没有数据需要清理。")
+		return
+	}
+
+	// Calculate cutoff time (30 days ago)
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+
+	// Filter records to keep
+	var newRecords []ResourceRecord
+	removedCount := 0
+	for _, record := range records {
+		if record.Timestamp.After(cutoff) {
+			newRecords = append(newRecords, record)
+		} else {
+			removedCount++
+		}
+	}
+
+	fmt.Printf("原始记录数: %d\n", len(records))
+	fmt.Printf("保留记录数: %d\n", len(newRecords))
+	fmt.Printf("删除记录数: %d\n", removedCount)
+
+	if removedCount == 0 {
+		fmt.Println("没有30天前的数据需要清理。")
+		return
+	}
+
+	// Write filtered records back to file
+	if err := a.writeResourceRecords(expandedPath, newRecords); err != nil {
+		log.Fatalf("写入清理后的数据失败: %v", err)
+	}
+
+	fmt.Println("数据清理完成。")
+}
+
+// writeResourceRecords writes resource records to file
+func (a *App) writeResourceRecords(filePath string, records []ResourceRecord) error {
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return err
+	}
+
+	// Create backup first
+	backupPath := filePath + ".backup"
+	if err := copyFile(filePath, backupPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+
+	// Open file for writing (truncate)
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write each resource record in CSV format
+	for _, resource := range records {
+		line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%t\n",
+			resource.Timestamp.Format(time.RFC3339),
+			resource.Name,
+			resource.CPUPercent,
+			resource.MemoryMB,
+			resource.Threads,
+			resource.DiskReadMB,
+			resource.DiskWriteMB,
+			resource.NetSentKB,
+			resource.NetRecvKB,
+			resource.IsActive)
+		if _, err := file.WriteString(line); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	_, err = io.Copy(destination, source)
+	return err
 }
 
 func (a *App) getStatsForPeriod(period time.Duration) ([]ProcessStats, error) {
