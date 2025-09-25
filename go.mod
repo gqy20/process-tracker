@@ -2,7 +2,10 @@ module github.com/yourusername/process-tracker
 
 go 1.21
 
-require github.com/shirou/gopsutil/v3 v3.23.4
+require (
+	github.com/shirou/gopsutil/v3 v3.23.4
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
