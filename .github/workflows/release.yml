@@ -147,6 +147,7 @@ jobs:
         GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || (matrix.os == 'macos-latest' && 'darwin' || 'windows') }}
         GOARCH: ${{ matrix.goarch }}
         VERSION: ${{ needs.version-check.outputs.version }}
+      shell: bash
       run: |
         # 设置输出文件名
         if [ "$GOOS" = "windows" ]; then
@@ -194,6 +195,7 @@ jobs:
     - name: Prepare Release Files
       env:
         VERSION: ${{ needs.version-check.outputs.version }}
+      shell: bash
       run: |
         # 创建发布目录
         mkdir -p release-files
@@ -208,7 +210,7 @@ jobs:
           if [ -d "$dir" ]; then
             echo "Processing directory: $dir"
             # 找到并移动文件
-            find "$dir" -type f -executable -exec cp {} release-files/ \;
+            find "$dir" -type f -exec cp {} release-files/ \;
           fi
         done
         
