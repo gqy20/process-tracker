@@ -1,0 +1,290 @@
+name: Auto Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is-new-version: ${{ steps.version.outputs.is-new-version }}
+      release-notes: ${{ steps.changelog.outputs.release-notes }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Extract Version
+      id: version
+      run: |
+        # 从 main.go 中提取版本号
+        VERSION=$(grep -o 'var Version = "[^"]*"' main.go | sed 's/var Version = "\(.*\)"/\1/')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # 检查是否为新版本（检查是否已存在该tag）
+        if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
+          echo "is-new-version=false" >> $GITHUB_OUTPUT
+          echo "Version v$VERSION already exists, skipping release creation"
+        else
+          echo "is-new-version=true" >> $GITHUB_OUTPUT
+          echo "New version v$VERSION detected, will create release"
+        fi
+        
+        echo "Current version: $VERSION"
+    
+    - name: Generate Release Notes
+      id: changelog
+      if: steps.version.outputs.is-new-version == 'true'
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        
+        # 获取从上一个版本到现在的所有 commit
+        if git tag -l | grep -q "v"; then
+          # 找到上一个版本标签
+          PREV_TAG=$(git tag -l "v*" | sort -V | tail -n 2 | head -n 1)
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%h %s" $PREV_TAG..HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"%h %s" --reverse)
+          fi
+        else
+          COMMITS=$(git log --pretty=format:"%h %s" --reverse)
+        fi
+        
+        # 生成发布说明
+        cat > release-notes.md << EOF
+        ## Process Tracker v$VERSION
+        
+        🚀 **智能进程监控工具** - 用于跟踪和分析系统进程的资源使用情况
+        
+        ### 📦 下载
+        
+        选择适合您平台的版本：
+        
+        - **process-tracker-linux-amd64** - Linux Intel/AMD 64位
+        - **process-tracker-linux-arm64** - Linux ARM 64位
+        - **process-tracker-macos-amd64** - macOS Intel 64位
+        - **process-tracker-macos-arm64** - macOS ARM64 (Apple Silicon)
+        - **process-tracker-windows-amd64.exe** - Windows Intel/AMD 64位
+        
+        ### 🚀 快速开始
+        
+        \`\`\`bash
+        # 赋予执行权限
+        chmod +x process-tracker-*
+        
+        # 开始监控
+        ./process-tracker-linux-amd64 start
+        
+        # 查看版本
+        ./process-tracker-linux-amd64 version
+        
+        # 查看帮助
+        ./process-tracker-linux-amd64 help
+        \`\`\`
+        
+        ### 📋 本次更新内容
+        
+        $COMMITS
+        
+        ### ✨ 主要特性
+        
+        - 🔍 **实时监控**: 监控CPU、内存、磁盘I/O、网络使用情况
+        - 📊 **智能统计**: 支持简单、详细、完整三种统计粒度
+        - 🗂️ **智能分类**: 自动识别应用程序类型
+        - 💾 **存储优化**: 自动文件轮转和压缩
+        - 🎛️ **灵活配置**: YAML配置文件支持
+        - 📤 **数据导出**: JSON格式数据导出和分析
+        
+        ### 📄 完整文档
+        
+        详细使用说明请参考：[README.md](https://github.com/yourusername/process-tracker/blob/main/README.md)
+        
+        ---
+        
+        🤖 *此发布由 GitHub Actions 自动生成*
+        EOF
+        
+        echo "Release notes generated:"
+        cat release-notes.md
+        
+        # 将 release notes 内容添加到输出
+        echo "release-notes<<EOF" >> $GITHUB_OUTPUT
+        cat release-notes.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+  build:
+    needs: version-check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        goarch: [amd64]
+        include:
+          - os: ubuntu-latest
+            goarch: arm64
+          - os: macos-latest
+            goarch: arm64
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Build for ${{ matrix.os }}/${{ matrix.goarch }}
+      env:
+        GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || (matrix.os == 'macos-latest' && 'darwin' || 'windows') }}
+        GOARCH: ${{ matrix.goarch }}
+        VERSION: ${{ needs.version-check.outputs.version }}
+      run: |
+        # 设置输出文件名
+        if [ "$GOOS" = "windows" ]; then
+          OUTPUT_NAME="process-tracker.exe"
+        elif [ "$GOOS" = "darwin" ]; then
+          if [ "$GOARCH" = "arm64" ]; then
+            OUTPUT_NAME="process-tracker-macos-arm64"
+          else
+            OUTPUT_NAME="process-tracker-macos"
+          fi
+        else
+          if [ "$GOARCH" = "arm64" ]; then
+            OUTPUT_NAME="process-tracker-linux-arm64"
+          else
+            OUTPUT_NAME="process-tracker"
+          fi
+        fi
+        
+        # 构建程序
+        go build -ldflags="-X main.Version=$VERSION" -o "$OUTPUT_NAME" .
+        
+        echo "Built: $OUTPUT_NAME"
+        
+        # 显示文件信息
+        ls -la "$OUTPUT_NAME"
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: process-tracker-${{ matrix.os }}-${{ matrix.goarch }}
+        path: |
+          process-tracker*
+          process-tracker.exe*
+
+  create-release:
+    needs: [version-check, build]
+    runs-on: ubuntu-latest
+    if: needs.version-check.outputs.is-new-version == 'true'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Prepare Release Files
+      env:
+        VERSION: ${{ needs.version-check.outputs.version }}
+      run: |
+        # 创建发布目录
+        mkdir -p release-files
+        
+        # 生成发布说明文件
+        cat > release-files/release-notes.md << 'EOF'
+        ${{ needs.version-check.outputs.release-notes }}
+        EOF
+        
+        # 重命名和整理文件
+        for dir in process-tracker-*; do
+          if [ -d "$dir" ]; then
+            echo "Processing directory: $dir"
+            # 找到并移动文件
+            find "$dir" -type f -executable -exec cp {} release-files/ \;
+          fi
+        done
+        
+        # 重命名文件以包含平台信息
+        cd release-files
+        for file in *; do
+          if [ -f "$file" ] && [ "$file" != "release-notes.md" ]; then
+            case "$file" in
+              process-tracker.exe)
+                mv "$file" "process-tracker-windows-amd64.exe"
+                ;;
+              process-tracker-macos-arm64)
+                mv "$file" "process-tracker-macos-arm64"
+                ;;
+              process-tracker-macos)
+                mv "$file" "process-tracker-macos-amd64"
+                ;;
+              process-tracker-linux-arm64)
+                mv "$file" "process-tracker-linux-arm64"
+                ;;
+              process-tracker)
+                mv "$file" "process-tracker-linux-amd64"
+                ;;
+            esac
+          fi
+        done
+        
+        # 显示最终文件
+        echo "Release files:"
+        ls -la
+        
+        # 计算文件大小
+        echo "File sizes:"
+        for file in *; do
+          if [ -f "$file" ] && [ "$file" != "release-notes.md" ]; then
+            size=$(du -h "$file" | cut -f1)
+            echo "  $file: $size"
+          fi
+        done
+        
+        # 显示发布说明预览
+        echo ""
+        echo "Release notes preview:"
+        echo "================================"
+        cat release-notes.md
+        echo "================================"
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.version-check.outputs.version }}
+        name: Process Tracker v${{ needs.version-check.outputs.version }}
+        body_path: release-files/release-notes.md
+        files: |
+          release-files/process-tracker-linux-amd64
+          release-files/process-tracker-linux-arm64
+          release-files/process-tracker-macos-amd64
+          release-files/process-tracker-macos-arm64
+          release-files/process-tracker-windows-amd64.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: false
+    
+    - name: Create Tag
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag -a "v${{ needs.version-check.outputs.version }}" -m "Release v${{ needs.version-check.outputs.version }}"
+        git push origin "v${{ needs.version-check.outputs.version }}"
+    
+    - name: Summary
+      run: |
+        echo "🎉 Release v${{ needs.version-check.outputs.version }} created successfully!"
+        echo "📦 Assets:"
+        echo "  - Linux AMD64: process-tracker-linux-amd64"
+        echo "  - Linux ARM64: process-tracker-linux-arm64"
+        echo "  - macOS AMD64: process-tracker-macos-amd64"
+        echo "  - macOS ARM64: process-tracker-macos-arm64"
+        echo "  - Windows AMD64: process-tracker-windows-amd64.exe"
