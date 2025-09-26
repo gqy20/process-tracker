@@ -220,19 +220,65 @@ jobs:
           if [ -f "$file" ] && [ "$file" != "release-notes.md" ]; then
             case "$file" in
               process-tracker.exe)
-                mv "$file" "process-tracker-windows-amd64.exe"
+                # 重命名 Windows 可执行文件
+                if [ "$file" != "process-tracker-windows-amd64.exe" ]; then
+                  mv "$file" "process-tracker-windows-amd64.exe"
+                fi
                 ;;
               process-tracker-macos-arm64)
-                mv "$file" "process-tracker-macos-arm64"
+                # 已经是正确名称，不需要重命名
                 ;;
               process-tracker-macos)
                 mv "$file" "process-tracker-macos-amd64"
                 ;;
               process-tracker-linux-arm64)
-                mv "$file" "process-tracker-linux-arm64"
+                # 已经是正确名称，不需要重命名
                 ;;
               process-tracker)
                 mv "$file" "process-tracker-linux-amd64"
+                ;;
+              process-tracker-windows-amd64.exe)
+                # 已经是正确名称，不需要重命名
+                ;;
+              process-tracker-macos-amd64)
+                # 已经是正确名称，不需要重命名
+                ;;
+              process-tracker-linux-amd64)
+                # 已经是正确名称，不需要重命名
+                ;;
+            esac
+          fi
+        done
+        
+        # 清理重复文件（如果有的话）
+        for file in *; do
+          if [ -f "$file" ] && [ "$file" != "release-notes.md" ]; then
+            case "$file" in
+              process-tracker.exe|process-tracker|process-tracker-macos|process-tracker-linux-arm64|process-tracker-macos-arm64)
+                # 删除原始文件（如果重命名后的文件存在）
+                case "$file" in
+                  process-tracker.exe)
+                    if [ -f "process-tracker-windows-amd64.exe" ]; then
+                      rm "$file"
+                    fi
+                    ;;
+                  process-tracker)
+                    if [ -f "process-tracker-linux-amd64" ]; then
+                      rm "$file"
+                    fi
+                    ;;
+                  process-tracker-macos)
+                    if [ -f "process-tracker-macos-amd64" ]; then
+                      rm "$file"
+                    fi
+                    ;;
+                  process-tracker-linux-arm64)
+                    # 已经是正确名称，保留
+                    ;;
+                  process-tracker-macos-arm64)
+                    # 已经是正确名称，保留
+                    ;;
+                esac
                 ;;
             esac
           fi
