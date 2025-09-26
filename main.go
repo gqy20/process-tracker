@@ -18,7 +18,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.2"
+var Version = "0.3.3"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -205,6 +205,34 @@ func main() {
 		app.removeProcessFromQuota(os.Args[2], os.Args[3])
 	case "list-quotas":
 		app.listQuotas()
+	case "list-discovered":
+		app.listDiscoveredProcesses()
+	case "list-groups":
+		app.listProcessGroups()
+	case "add-group":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 请指定组名称和匹配模式")
+			fmt.Println("用法: process-tracker add-group <组名称> <匹配模式> [自动管理] [配额名称]")
+			return
+		}
+		autoManage := false
+		quotaName := ""
+		if len(os.Args) > 4 {
+			autoManage = os.Args[4] == "true"
+		}
+		if len(os.Args) > 5 {
+			quotaName = os.Args[5]
+		}
+		app.addCustomGroup(os.Args[2], os.Args[3], autoManage, quotaName)
+	case "remove-group":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定组名称")
+			fmt.Println("用法: process-tracker remove-group <组名称>")
+			return
+		}
+		app.removeCustomGroup(os.Args[2])
+	case "discovery-stats":
+		app.showDiscoveryStats()
 	case "help":
 		app.printUsage()
 	default:
@@ -213,7 +241,7 @@ func main() {
 }
 
 func (a *App) printUsage() {
-	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.2")
+	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.3")
 	fmt.Println()
 	fmt.Println("使用方法:")
 	fmt.Println("  process-tracker <命令>")
@@ -238,6 +266,13 @@ func (a *App) printUsage() {
 	fmt.Println("  remove-quota       从配额管理中移除进程")
 	fmt.Println("  list-quotas        列出所有资源配额")
 	fmt.Println()
+	fmt.Println("进程发现命令:")
+	fmt.Println("  list-discovered    列出所有自动发现的进程")
+	fmt.Println("  list-groups        列出所有进程组")
+	fmt.Println("  add-group          添加自定义进程组")
+	fmt.Println("  remove-group       移除自定义进程组")
+	fmt.Println("  discovery-stats    显示进程发现统计")
+	fmt.Println()
 	fmt.Println("其他命令:")
 	fmt.Println("  version            显示版本信息")
 	fmt.Println("  help               显示此帮助信息")
@@ -260,6 +295,23 @@ func (a *App) printUsage() {
 	fmt.Println("      default_action: warn|throttle|stop|restart|notify")
 	fmt.Println("      max_violations: 5")
 	fmt.Println("      violation_window: 5m")
+	fmt.Println("    process_discovery:")
+	fmt.Println("      enabled: true|false")
+	fmt.Println("      discovery_interval: 30s")
+	fmt.Println("      auto_manage: true|false")
+	fmt.Println("      bio_tools_only: true|false")
+	fmt.Println("      process_patterns: [pattern1, pattern2]")
+	fmt.Println("      exclude_patterns: [pattern1, pattern2]")
+	fmt.Println("      max_processes: 100")
+	fmt.Println("      cpu_threshold: 80.0")
+	fmt.Println("      memory_threshold_mb: 1024")
+	fmt.Println()
+	fmt.Println("v0.3.3 新特性:")
+	fmt.Println("  🔍 进程自动发现 - 自动识别和分类系统进程")
+	fmt.Println("  🧬 生物信息学工具 - 内置常见生物信息学工具识别")
+	fmt.Println("  🎯 智能分组 - 基于模式匹配的进程分组")
+	fmt.Println("  🤖 自动管理 - 发现的进程自动加入配额管理")
+	fmt.Println("  📊 发现统计 - 实时统计和分析发现的进程")
 	fmt.Println()
 	fmt.Println("v0.3.2 新特性:")
 	fmt.Println("  📊 资源配额管理 - CPU、内存、线程等资源限制")
@@ -1077,4 +1129,132 @@ func (a *App) listQuotas() {
 	stats := a.GetQuotaStats()
 	fmt.Printf("📊 配额统计: 总计 %d 个配额，%d 个活跃，%d 个进程，%d 次违规\n",
 		stats.TotalQuotas, stats.ActiveQuotas, stats.TotalProcesses, stats.TotalViolations)
+}
+
+// listDiscoveredProcesses lists all automatically discovered processes
+func (a *App) listDiscoveredProcesses() {
+	if !a.Config.ProcessDiscovery.Enabled {
+		fmt.Println("❌ 进程发现功能未启用，请检查配置文件")
+		return
+	}
+	
+	processes := a.GetDiscoveredProcesses()
+	if len(processes) == 0 {
+		fmt.Println("🔍 未发现任何进程")
+		return
+	}
+	
+	fmt.Printf("🔍 发现的进程 (%d 个):\n", len(processes))
+	fmt.Println("==========================================")
+	
+	for _, proc := range processes {
+		fmt.Printf("📋 %s (PID: %d)\n", proc.Name, proc.PID)
+		fmt.Printf("   组: %s\n", proc.GroupName)
+		fmt.Printf("   命令行: %s\n", proc.Cmdline)
+		fmt.Printf("   状态: %s\n", proc.Status)
+		fmt.Printf("   发现时间: %s\n", proc.Discovered.Format("2006-01-02 15:04:05"))
+		fmt.Printf("   最后见: %s\n", proc.LastSeen.Format("2006-01-02 15:04:05"))
+		if proc.CPUUsed > 0 {
+			fmt.Printf("   CPU使用: %.2f%%\n", proc.CPUUsed)
+		}
+		if proc.MemoryUsed > 0 {
+			fmt.Printf("   内存使用: %d MB\n", proc.MemoryUsed)
+		}
+		if len(proc.Tags) > 0 {
+			fmt.Printf("   标签: %v\n", proc.Tags)
+		}
+		fmt.Println("---")
+	}
+}
+
+// listProcessGroups lists all process groups
+func (a *App) listProcessGroups() {
+	if !a.Config.ProcessDiscovery.Enabled {
+		fmt.Println("❌ 进程发现功能未启用，请检查配置文件")
+		return
+	}
+	
+	groups := a.GetProcessGroups()
+	if len(groups) == 0 {
+		fmt.Println("📋 未定义任何进程组")
+		return
+	}
+	
+	fmt.Printf("📋 进程组 (%d 个):\n", len(groups))
+	fmt.Println("=========================")
+	
+	for name, group := range groups {
+		fmt.Printf("🏷️  %s\n", name)
+		fmt.Printf("   描述: %s\n", group.Description)
+		fmt.Printf("   模式: %s\n", group.Pattern)
+		fmt.Printf("   自动管理: %t\n", group.AutoManage)
+		if group.QuotaName != "" {
+			fmt.Printf("   配额名称: %s\n", group.QuotaName)
+		}
+		if len(group.Tags) > 0 {
+			fmt.Printf("   标签: %v\n", group.Tags)
+		}
+		if len(group.Processes) > 0 {
+			fmt.Printf("   进程数: %d\n", len(group.Processes))
+			fmt.Printf("   进程: %v\n", group.Processes)
+		}
+		fmt.Println("---")
+	}
+}
+
+// addCustomGroup adds a custom process group
+func (a *App) addCustomGroup(name, pattern string, autoManage bool, quotaName string) {
+	if !a.Config.ProcessDiscovery.Enabled {
+		fmt.Println("❌ 进程发现功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.AddCustomGroup(name, pattern, autoManage, quotaName); err != nil {
+		fmt.Printf("❌ 添加自定义组失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 成功添加自定义进程组: %s\n", name)
+	fmt.Printf("   模式: %s\n", pattern)
+	fmt.Printf("   自动管理: %t\n", autoManage)
+	if quotaName != "" {
+		fmt.Printf("   配额名称: %s\n", quotaName)
+	}
+}
+
+// removeCustomGroup removes a custom process group
+func (a *App) removeCustomGroup(name string) {
+	if !a.Config.ProcessDiscovery.Enabled {
+		fmt.Println("❌ 进程发现功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.RemoveCustomGroup(name); err != nil {
+		fmt.Printf("❌ 移除自定义组失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 成功移除自定义进程组: %s\n", name)
+}
+
+// showDiscoveryStats shows process discovery statistics
+func (a *App) showDiscoveryStats() {
+	if !a.Config.ProcessDiscovery.Enabled {
+		fmt.Println("❌ 进程发现功能未启用，请检查配置文件")
+		return
+	}
+	
+	stats := a.GetDiscoveryStats()
+	fmt.Printf("🔍 进程发现统计:\n")
+	fmt.Println("===================")
+	fmt.Printf("📊 总发现进程: %d\n", stats.TotalDiscovered)
+	fmt.Printf("📋 进程组数: %d\n", stats.TotalGroups)
+	fmt.Printf("🤖 自动管理: %d\n", stats.AutoManaged)
+	
+	if len(stats.GroupCounts) > 0 {
+		fmt.Println("\n📈 各组统计:")
+		for group, count := range stats.GroupCounts {
+			fmt.Printf("   %s: %d\n", group, count)
+		}
+	}
 }

@@ -54,6 +54,9 @@ type App struct {
 	
 	// Resource quota management
 	QuotaManager *ResourceQuotaManager
+	
+	// Process discovery management
+	ProcessDiscovery *ProcessDiscovery
 }
 
 // NewApp creates a new App instance
@@ -90,6 +93,11 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.QuotaManager = NewResourceQuotaManager(config.ResourceQuota, app)
 	}
 	
+	// Initialize process discovery manager if enabled
+	if config.ProcessDiscovery.Enabled {
+		app.ProcessDiscovery = NewProcessDiscovery(config.ProcessDiscovery, app)
+	}
+	
 	return app
 }
 
@@ -109,6 +117,11 @@ func (a *App) Initialize() error {
 	// Start resource quota manager if enabled
 	if a.QuotaManager != nil {
 		a.QuotaManager.Start()
+	}
+	
+	// Start process discovery manager if enabled
+	if a.ProcessDiscovery != nil {
+		a.ProcessDiscovery.Start()
 	}
 	
 	return nil
@@ -758,6 +771,13 @@ func (a *App) StopQuotaManager() {
 	}
 }
 
+// StopProcessDiscovery stops the process discovery manager
+func (a *App) StopProcessDiscovery() {
+	if a.ProcessDiscovery != nil {
+		a.ProcessDiscovery.Stop()
+	}
+}
+
 // AddProcessToQuota adds a process to a resource quota
 func (a *App) AddProcessToQuota(quotaName string, pid int32) error {
 	if a.QuotaManager == nil {
@@ -816,4 +836,77 @@ func (a *App) GetQuotaStats() QuotaStats {
 	}
 	
 	return a.QuotaManager.GetQuotaStats()
+}
+
+// GetDiscoveredProcesses returns all automatically discovered processes
+func (a *App) GetDiscoveredProcesses() []*DiscoveredProcess {
+	if a.ProcessDiscovery == nil {
+		return []*DiscoveredProcess{}
+	}
+	
+	return a.ProcessDiscovery.GetDiscoveredProcesses()
+}
+
+// GetProcessGroups returns all process groups
+func (a *App) GetProcessGroups() map[string]*ProcessGroup {
+	if a.ProcessDiscovery == nil {
+		return make(map[string]*ProcessGroup)
+	}
+	
+	return a.ProcessDiscovery.GetProcessGroups()
+}
+
+// GetProcessesByGroup returns processes in a specific group
+func (a *App) GetProcessesByGroup(groupName string) []*DiscoveredProcess {
+	if a.ProcessDiscovery == nil {
+		return []*DiscoveredProcess{}
+	}
+	
+	return a.ProcessDiscovery.GetProcessesByGroup(groupName)
+}
+
+// GetDiscoveryStats returns statistics about process discovery
+func (a *App) GetDiscoveryStats() DiscoveryStats {
+	if a.ProcessDiscovery == nil {
+		return DiscoveryStats{
+			TotalDiscovered: 0,
+			TotalGroups:     0,
+			GroupCounts:     make(map[string]int),
+			AutoManaged:     0,
+		}
+	}
+	
+	return a.ProcessDiscovery.GetDiscoveryStats()
+}
+
+// AddCustomGroup adds a custom process group
+func (a *App) AddCustomGroup(name, pattern string, autoManage bool, quotaName string) error {
+	if a.ProcessDiscovery == nil {
+		return fmt.Errorf("process discovery is not enabled")
+	}
+	
+	return a.ProcessDiscovery.AddCustomGroup(name, pattern, autoManage, quotaName)
+}
+
+// RemoveCustomGroup removes a custom process group
+func (a *App) RemoveCustomGroup(name string) error {
+	if a.ProcessDiscovery == nil {
+		return fmt.Errorf("process discovery is not enabled")
+	}
+	
+	return a.ProcessDiscovery.RemoveCustomGroup(name)
+}
+
+// GetDiscoveryEvents returns the discovery event channel
+func (a *App) GetDiscoveryEvents() <-chan ProcessDiscoveryEvent {
+	if a.ProcessDiscovery == nil {
+		return make(chan ProcessDiscoveryEvent)
+	}
+	
+	return a.ProcessDiscovery.Events()
+}
+
+// GetPID returns the process ID of the current application
+func (a *App) GetPID() int {
+	return os.Getpid()
 }

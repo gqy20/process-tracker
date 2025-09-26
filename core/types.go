@@ -24,6 +24,9 @@ type Config struct {
 	
 	// Resource quota configuration
 	ResourceQuota        ResourceQuotaConfig `yaml:"resource_quota"`
+	
+	// Process discovery configuration
+	ProcessDiscovery     ProcessDiscoveryConfig `yaml:"process_discovery"`
 }
 
 // ProcessControlConfig configures process management features
@@ -53,6 +56,7 @@ type ResourceQuotaConfig struct {
 	ViolationWindow  time.Duration    `yaml:"violation_window"`
 	Quotas           []ResourceQuota   `yaml:"quotas"`
 }
+
 
 // ResourceQuota defines resource limits for a process or group
 type ResourceQuota struct {
@@ -123,6 +127,17 @@ func GetDefaultConfig() Config {
 			MaxViolations:    5,
 			ViolationWindow: 5 * time.Minute,
 			Quotas:          []ResourceQuota{},
+		},
+		ProcessDiscovery: ProcessDiscoveryConfig{
+			Enabled:           true,
+			DiscoveryInterval: 15 * time.Second,
+			AutoManage:        true,
+			BioToolsOnly:      true,
+			ProcessPatterns:   []string{},
+			ExcludePatterns:   []string{"^$", "^systemd$", "^kworker", "^dbus.*"},
+			MaxProcesses:      1000,
+			CPUThreshold:      50.0,
+			MemoryThresholdMB: 1024,
 		},
 	}
 }
