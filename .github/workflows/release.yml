@@ -134,6 +134,7 @@ jobs:
   build:
     needs: version-check
     runs-on: ${{ matrix.os }}
+    if: needs.version-check.outputs.is-new-version == 'true'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
