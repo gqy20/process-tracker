@@ -255,3 +255,108 @@ func (a *App) GetProcessNameWithContext(info ProcessInfo) string {
 	}
 	return info.Name
 }
+
+// CollectAndSaveData collects process data and saves it to storage
+func (a *App) CollectAndSaveData() error {
+	// Get all processes
+	processes, err := process.Processes()
+	if err != nil {
+		return fmt.Errorf("failed to get processes: %w", err)
+	}
+
+	var records []ResourceRecord
+	
+	for _, p := range processes {
+		info, err := a.getProcessInfo(p)
+		if err != nil {
+			continue // Skip processes we can't get info for
+		}
+
+		// Skip system processes
+		if a.isSystemProcess(info.Name) {
+			continue
+		}
+
+		// Normalize process name
+		name := a.normalizeProcessName(info.Name)
+
+		// Create resource record
+		record := ResourceRecord{
+			Name:        name,
+			Timestamp:   time.Now(),
+			CPUPercent:  info.CPUPercent,
+			MemoryMB:    info.MemoryMB,
+			Threads:     info.Threads,
+			DiskReadMB:  info.DiskReadMB,
+			DiskWriteMB: info.DiskWriteMB,
+			NetSentKB:   info.NetSentKB,
+			NetRecvKB:   info.NetRecvKB,
+			IsActive:    false, // Will be set below
+			Command:     info.Cmdline,
+			WorkingDir:  info.Cwd,
+			Category:    IdentifyApplication(name, info.Cmdline, a.Config.UseSmartCategories),
+		}
+
+		// Set active status based on thresholds
+		config := GetDefaultActivityConfig()
+		record.IsActive = IsActive(record, config)
+
+		records = append(records, record)
+	}
+
+	// Save all records
+	if len(records) > 0 {
+		return a.storage.SaveRecords(records)
+	}
+
+	return nil
+}
+
+// getProcessInfo gets detailed information about a process
+func (a *App) getProcessInfo(p *process.Process) (ProcessInfo, error) {
+	info := ProcessInfo{Pid: p.Pid}
+	
+	// Get process name
+	if name, err := p.Name(); err == nil {
+		info.Name = name
+	} else {
+		return ProcessInfo{}, err
+	}
+	
+	// Get command line
+	if cmdline, err := p.Cmdline(); err == nil {
+		info.Cmdline = cmdline
+	}
+	
+	// Get working directory
+	if cwd, err := p.Cwd(); err == nil {
+		info.Cwd = cwd
+	}
+	
+	// Get CPU percentage
+	if cpuPercent, err := p.CPUPercent(); err == nil {
+		info.CPUPercent = cpuPercent
+	}
+	
+	// Get memory information
+	if memInfo, err := p.MemoryInfo(); err == nil {
+		info.MemoryMB = float64(memInfo.RSS) / 1024 / 1024 // Convert to MB
+	}
+	
+	// Get thread count
+	if threads, err := p.NumThreads(); err == nil {
+		info.Threads = threads
+	}
+	
+	// Get disk I/O (these might not be available on all systems)
+	if ioCounters, err := p.IOCounters(); err == nil {
+		info.DiskReadMB = float64(ioCounters.ReadBytes) / 1024 / 1024
+		info.DiskWriteMB = float64(ioCounters.WriteBytes) / 1024 / 1024
+	}
+	
+	// Get network statistics (estimated)
+	info.NetSentKB = 0.0
+	info.NetRecvKB = 0.0
+	
+	return info, nil
+}

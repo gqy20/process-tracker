@@ -84,8 +84,28 @@ func (mc *MonitoringCommands) StartMonitoring() error {
 		return fmt.Errorf("初始化失败: %w", err)
 	}
 
-	// Note: The actual monitoring logic should be implemented in core.App
-	// For now, we'll just show a message
+	// Start monitoring loop
+	go mc.monitoringLoop()
+
 	fmt.Println("✅ 监控已启动")
-	return nil
+	
+	// Keep the main process running
+	select {} // This blocks forever until interrupted
+	
+	return nil // This line will never be reached
+}
+
+// monitoringLoop runs the actual monitoring in a goroutine
+func (mc *MonitoringCommands) monitoringLoop() {
+	ticker := time.NewTicker(mc.app.Interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			if err := mc.app.CollectAndSaveData(); err != nil {
+				fmt.Printf("收集数据失败: %v\n", err)
+			}
+		}
+	}
 }
