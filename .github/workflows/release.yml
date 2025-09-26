@@ -23,6 +23,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        fetch-tags: true
     
     - name: Setup Go
       uses: actions/setup-go@v4
@@ -46,6 +47,8 @@ jobs:
         fi
         
         echo "Current version: $VERSION"
+        echo "Existing tags:"
+        git tag -l | sort -V | tail -5 || echo "No tags found"
     
     - name: Generate Release Notes
       id: changelog
@@ -196,6 +199,9 @@ jobs:
       contents: write
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
     
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
