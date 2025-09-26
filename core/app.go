@@ -60,6 +60,9 @@ type App struct {
 	
 	// Task management
 	TaskManager *TaskManager
+	
+	// Health check and alerting
+	HealthChecker *HealthChecker
 }
 
 // NewApp creates a new App instance
@@ -106,6 +109,11 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.TaskManager = NewTaskManager(config.TaskManager, app)
 	}
 	
+	// Initialize health checker if enabled
+	if config.HealthCheck.Enabled {
+		app.HealthChecker = NewHealthChecker(config.HealthCheck, app)
+	}
+	
 	return app
 }
 
@@ -135,6 +143,11 @@ func (a *App) Initialize() error {
 	// Start task manager if enabled
 	if a.TaskManager != nil {
 		a.TaskManager.Start()
+	}
+	
+	// Start health checker if enabled
+	if a.HealthChecker != nil {
+		a.HealthChecker.Start()
 	}
 	
 	return nil

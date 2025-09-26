@@ -30,6 +30,9 @@ type Config struct {
 	
 	// Task manager configuration
 	TaskManager         TaskManagerConfig `yaml:"task_manager"`
+	
+	// Health check and alerting configuration
+	HealthCheck         HealthCheckConfig `yaml:"health_check"`
 }
 
 // ProcessControlConfig configures process management features
@@ -229,6 +232,142 @@ func GetDefaultConfig() Config {
 			LogLevel:         "info",
 			EnableStats:      true,
 			TaskHistorySize:  1000,
+		},
+		HealthCheck: HealthCheckConfig{
+			Enabled:              true,
+			CheckInterval:        30 * time.Second,
+			EnableProcessChecks:  true,
+			EnableResourceChecks: true,
+			EnableTaskChecks:     true,
+			EnableSystemChecks:   true,
+			AlertManager: AlertManagerConfig{
+				Enabled:         true,
+				CheckInterval:   10 * time.Second,
+				RetryInterval:   30 * time.Second,
+				MaxRetries:     3,
+				NotificationChannels: []NotificationChannelConfig{
+					{
+						Name:    "console",
+						Type:    NotificationTypeConsole,
+						Enabled: true,
+						Config:  map[string]interface{}{},
+						Rules:   []string{"*"},
+					},
+					{
+						Name:    "log",
+						Type:    NotificationTypeLog,
+						Enabled: true,
+						Config: map[string]interface{}{
+							"log_file": "logs/alerts.log",
+						},
+						Rules: []string{"*"},
+					},
+				},
+				AlertHistorySize: 1000,
+			},
+			HealthRules: []HealthRule{
+				{
+					ID:          "high_cpu_usage",
+					Name:        "High CPU Usage",
+					Description: "Alert when CPU usage exceeds threshold",
+					Type:        HealthCheckTypeProcess,
+					Enabled:     true,
+					Severity:    AlertSeverityWarning,
+					Conditions: []HealthCondition{
+						{
+							Metric:    "cpu_percent",
+							Operator:  OpGreaterThan,
+							Threshold: 80.0,
+							Duration:  5 * time.Minute,
+							Count:     3,
+						},
+					},
+					Actions: []AlertAction{
+						{
+							Type:    ActionTypeNotify,
+							Channel: "console",
+							Enabled: true,
+						},
+						{
+							Type:    ActionTypeLog,
+							Channel: "log",
+							Enabled: true,
+						},
+					},
+				},
+				{
+					ID:          "high_memory_usage",
+					Name:        "High Memory Usage",
+					Description: "Alert when memory usage exceeds threshold",
+					Type:        HealthCheckTypeProcess,
+					Enabled:     true,
+					Severity:    AlertSeverityWarning,
+					Conditions: []HealthCondition{
+						{
+							Metric:    "memory_mb",
+							Operator:  OpGreaterThan,
+							Threshold: 2048.0,
+							Duration:  5 * time.Minute,
+							Count:     3,
+						},
+					},
+					Actions: []AlertAction{
+						{
+							Type:    ActionTypeNotify,
+							Channel: "console",
+							Enabled: true,
+						},
+					},
+				},
+				{
+					ID:          "task_failure",
+					Name:        "Task Failure",
+					Description: "Alert when tasks fail repeatedly",
+					Type:        HealthCheckTypeTask,
+					Enabled:     true,
+					Severity:    AlertSeverityError,
+					Conditions: []HealthCondition{
+						{
+							Metric:    "failure_count",
+							Operator:  OpGreaterEqual,
+							Threshold: 3.0,
+							Duration:  10 * time.Minute,
+							Count:     1,
+						},
+					},
+					Actions: []AlertAction{
+						{
+							Type:    ActionTypeNotify,
+							Channel: "console",
+							Enabled: true,
+						},
+					},
+				},
+				{
+					ID:          "system_load_high",
+					Name:        "High System Load",
+					Description: "Alert when system load average is high",
+					Type:        HealthCheckTypeSystem,
+					Enabled:     true,
+					Severity:    AlertSeverityWarning,
+					Conditions: []HealthCondition{
+						{
+							Metric:    "load_average",
+							Operator:  OpGreaterThan,
+							Threshold: 2.0,
+							Duration:  5 * time.Minute,
+							Count:     3,
+						},
+					},
+					Actions: []AlertAction{
+						{
+							Type:    ActionTypeNotify,
+							Channel: "console",
+							Enabled: true,
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -861,4 +1000,188 @@ func ParseResourceLineV3(line string) (ResourceRecord, error) {
 		WorkingDir:  fields[11],
 		Category:    fields[12],
 	}, nil
+}
+
+// HealthCheckConfig configures health check and alerting system
+type HealthCheckConfig struct {
+	Enabled              bool             `yaml:"enabled"`
+	CheckInterval        time.Duration    `yaml:"check_interval"`
+	EnableProcessChecks  bool             `yaml:"enable_process_checks"`
+	EnableResourceChecks bool             `yaml:"enable_resource_checks"`
+	EnableTaskChecks     bool             `yaml:"enable_task_checks"`
+	EnableSystemChecks   bool             `yaml:"enable_system_checks"`
+	AlertManager         AlertManagerConfig `yaml:"alert_manager"`
+	HealthRules          []HealthRule     `yaml:"health_rules"`
+}
+
+// AlertManagerConfig configures alert management and notification
+type AlertManagerConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	CheckInterval   time.Duration `yaml:"check_interval"`
+	RetryInterval   time.Duration `yaml:"retry_interval"`
+	MaxRetries     int           `yaml:"max_retries"`
+	NotificationChannels []NotificationChannelConfig `yaml:"notification_channels"`
+	AlertHistorySize int         `yaml:"alert_history_size"`
+}
+
+// NotificationChannelConfig defines a notification channel
+type NotificationChannelConfig struct {
+	Name     string                 `yaml:"name"`
+	Type     NotificationType       `yaml:"type"`
+	Enabled  bool                   `yaml:"enabled"`
+	Config   map[string]interface{} `yaml:"config"`
+	Rules    []string               `yaml:"rules"` // Health rule names that use this channel
+}
+
+// NotificationType represents the type of notification channel
+type NotificationType string
+
+const (
+	NotificationTypeEmail    NotificationType = "email"
+	NotificationTypeWebhook  NotificationType = "webhook"
+	NotificationTypeSlack    NotificationType = "slack"
+	NotificationTypeTelegram NotificationType = "telegram"
+	NotificationTypeDiscord  NotificationType = "discord"
+	NotificationTypeConsole  NotificationType = "console"
+	NotificationTypeLog      NotificationType = "log"
+)
+
+// HealthRule defines a health check rule
+type HealthRule struct {
+	ID          string                 `yaml:"id"`
+	Name        string                 `yaml:"name"`
+	Description string                 `yaml:"description"`
+	Type        HealthCheckType        `yaml:"type"`
+	Enabled     bool                   `yaml:"enabled"`
+	Severity    AlertSeverity          `yaml:"severity"`
+	Conditions  []HealthCondition      `yaml:"conditions"`
+	Actions     []AlertAction          `yaml:"actions"`
+	Metadata    map[string]interface{} `yaml:"metadata"`
+}
+
+// HealthCheckType represents the type of health check
+type HealthCheckType string
+
+const (
+	HealthCheckTypeProcess  HealthCheckType = "process"
+	HealthCheckTypeResource HealthCheckType = "resource"
+	HealthCheckTypeTask     HealthCheckType = "task"
+	HealthCheckTypeSystem   HealthCheckType = "system"
+)
+
+// HealthCondition defines a condition for health checks
+type HealthCondition struct {
+	Metric     string      `yaml:"metric"`
+	Operator   ComparisonOp `yaml:"operator"`
+	Threshold  float64     `yaml:"threshold"`
+	Duration   time.Duration `yaml:"duration"`
+	Count      int         `yaml:"count"` // Number of consecutive violations
+}
+
+// ComparisonOp represents comparison operators
+type ComparisonOp string
+
+const (
+	OpGreaterThan    ComparisonOp = ">"
+	OpGreaterEqual    ComparisonOp = ">="
+	OpLessThan        ComparisonOp = "<"
+	OpLessEqual       ComparisonOp = "<="
+	OpEqual           ComparisonOp = "=="
+	OpNotEqual        ComparisonOp = "!="
+)
+
+// AlertSeverity represents alert severity levels
+type AlertSeverity string
+
+const (
+	AlertSeverityInfo     AlertSeverity = "info"
+	AlertSeverityWarning  AlertSeverity = "warning"
+	AlertSeverityError    AlertSeverity = "error"
+	AlertSeverityCritical AlertSeverity = "critical"
+)
+
+// AlertAction defines actions to take when an alert is triggered
+type AlertAction struct {
+	Type        ActionType             `yaml:"type"`
+	Channel     string                 `yaml:"channel"`     // Channel name for notifications
+	Parameters  map[string]interface{} `yaml:"parameters"`
+	Timeout     time.Duration          `yaml:"timeout"`
+	Enabled     bool                   `yaml:"enabled"`
+}
+
+// ActionType represents alert action types
+type ActionType string
+
+const (
+	ActionTypeNotify   ActionType = "notify"
+	ActionTypeRestart  ActionType = "restart"
+	ActionTypeStop     ActionType = "stop"
+	ActionTypeThrottle ActionType = "throttle"
+	ActionTypeExecute  ActionType = "execute"
+	ActionTypeLog      ActionType = "log"
+)
+
+// HealthStatus represents health status
+type HealthStatus string
+
+const (
+	HealthStatusHealthy   HealthStatus = "healthy"
+	HealthStatusWarning   HealthStatus = "warning"
+	HealthStatusCritical  HealthStatus = "critical"
+	HealthStatusUnknown  HealthStatus = "unknown"
+)
+
+// HealthCheck represents a health check result
+type HealthCheck struct {
+	ID          string                 `yaml:"id"`
+	Name        string                 `yaml:"name"`
+	Type        HealthCheckType        `yaml:"type"`
+	Status      HealthStatus           `yaml:"status"`
+	Score       float64                `yaml:"score"` // 0-100 health score
+	Message     string                 `yaml:"message"`
+	Details     map[string]interface{} `yaml:"details"`
+	Timestamp   time.Time              `yaml:"timestamp"`
+	Duration    time.Duration          `yaml:"duration"`
+	Tags        []string               `yaml:"tags"`
+}
+
+// Alert represents an alert notification
+type Alert struct {
+	ID          string                 `yaml:"id"`
+	RuleID      string                 `yaml:"rule_id"`
+	RuleName    string                 `yaml:"rule_name"`
+	Type        HealthCheckType        `yaml:"type"`
+	Severity    AlertSeverity          `yaml:"severity"`
+	Status      AlertStatus            `yaml:"status"`
+	Title       string                 `yaml:"title"`
+	Message     string                 `yaml:"message"`
+	Details     map[string]interface{} `yaml:"details"`
+	TriggeredAt time.Time              `yaml:"triggered_at"`
+	UpdatedAt   time.Time              `yaml:"updated_at"`
+	ResolvedAt  time.Time              `yaml:"resolved_at"`
+	RetryCount  int                    `yaml:"retry_count"`
+	Tags        []string               `yaml:"tags"`
+	Actions     []AlertAction          `yaml:"actions"`
+}
+
+// AlertStatus represents alert status
+type AlertStatus string
+
+const (
+	AlertStatusActive    AlertStatus = "active"
+	AlertStatusResolved  AlertStatus = "resolved"
+	AlertStatusSuppressed AlertStatus = "suppressed"
+	AlertStatusExpired   AlertStatus = "expired"
+)
+
+// SystemMetrics represents system-wide metrics
+type SystemMetrics struct {
+	CPUUsage     float64 `yaml:"cpu_usage"`     // Overall CPU usage
+	MemoryUsage  float64 `yaml:"memory_usage"`  // Overall memory usage
+	DiskUsage    float64 `yaml:"disk_usage"`    // Overall disk usage
+	LoadAverage  float64 `yaml:"load_average"`  // System load average
+	ProcessCount int64   `yaml:"process_count"` // Total process count
+	NetworkIn    float64 `yaml:"network_in"`    // Network inbound KB/s
+	NetworkOut   float64 `yaml:"network_out"`   // Network outbound KB/s
+	Timestamp    time.Time `yaml:"timestamp"`
 }
