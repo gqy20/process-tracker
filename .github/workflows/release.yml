@@ -323,7 +323,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ needs.version-check.outputs.version }}
-        name: Process Tracker v${{ needs.version-check.outputs.version }}
+        name: Process Tracker
         body_path: release-files/release-notes.md
         files: |
           release-files/process-tracker-linux-amd64
