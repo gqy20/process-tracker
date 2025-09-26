@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+# 设置权限
+permissions:
+  contents: write      # 允许创建 releases 和 tags
+  pull-requests: write # 允许操作 PR
+  actions: write       # 允许操作 actions
+
 jobs:
   version-check:
     runs-on: ubuntu-latest
@@ -186,6 +192,8 @@ jobs:
     needs: [version-check, build]
     runs-on: ubuntu-latest
     if: needs.version-check.outputs.is-new-version == 'true'
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v4
     
@@ -304,6 +312,13 @@ jobs:
         cat release-notes.md
         echo "================================"
     
+    - name: Create Tag
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag -a "v${{ needs.version-check.outputs.version }}" -m "Release v${{ needs.version-check.outputs.version }}"
+        git push origin "v${{ needs.version-check.outputs.version }}"
+    
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
@@ -319,13 +334,6 @@ jobs:
         draft: false
         prerelease: false
         generate_release_notes: false
-    
-    - name: Create Tag
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git tag -a "v${{ needs.version-check.outputs.version }}" -m "Release v${{ needs.version-check.outputs.version }}"
-        git push origin "v${{ needs.version-check.outputs.version }}"
     
     - name: Summary
       run: |
