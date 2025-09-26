@@ -36,7 +36,7 @@ type TaskExecution struct {
 	StartTime   time.Time
 	OutputLog   *os.File
 	ErrorLog    *os.File
-	Process     *ManagedProcess
+	ProcessPID  int32  // Store PID instead of full ManagedProcess
 }
 
 // TaskEvent represents a task lifecycle event
@@ -221,8 +221,8 @@ func (tm *TaskManager) cancelTask(taskID string) error {
 	}
 
 	// Stop process if managed
-	if execution.Process != nil {
-		tm.app.ProcessController.StopProcess(execution.Process.PID)
+	if execution.ProcessPID != 0 {
+		tm.app.StopProcess(execution.ProcessPID)
 	}
 
 	// Update task status

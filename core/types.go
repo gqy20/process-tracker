@@ -33,6 +33,22 @@ type Config struct {
 	
 	// Health check and alerting configuration
 	HealthCheck         HealthCheckConfig `yaml:"health_check"`
+	
+	// Unified monitoring configuration
+	Monitoring          MonitoringConfig `yaml:"monitoring"`
+	
+	// Bioinformatics tools configuration
+	BioTools            BioToolsConfig `yaml:"bio_tools"`
+}
+
+// BioToolsConfig 生物信息学工具配置
+type BioToolsConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	ToolPaths         []string `yaml:"tool_paths"`
+	DefaultTimeout    int      `yaml:"default_timeout"`
+	MaxInstances      int      `yaml:"max_instances"`
+	LogLevel          string   `yaml:"log_level"`
+	EnableMonitoring  bool     `yaml:"enable_monitoring"`
 }
 
 // ProcessControlConfig configures process management features
@@ -61,6 +77,19 @@ type ResourceQuotaConfig struct {
 	MaxViolations     int              `yaml:"max_violations"`
 	ViolationWindow  time.Duration    `yaml:"violation_window"`
 	Quotas           []ResourceQuota   `yaml:"quotas"`
+}
+
+// ProcessDiscoveryConfig configures process discovery features
+type ProcessDiscoveryConfig struct {
+	Enabled           bool          `yaml:"enabled"`
+	DiscoveryInterval time.Duration `yaml:"discovery_interval"`
+	AutoManage        bool          `yaml:"auto_manage"`
+	BioToolsOnly      bool          `yaml:"bio_tools_only"`
+	ProcessPatterns   []string      `yaml:"process_patterns"`
+	ExcludePatterns   []string      `yaml:"exclude_patterns"`
+	MaxProcesses      int           `yaml:"max_processes"`
+	CPUThreshold      float64       `yaml:"cpu_threshold"`
+	MemoryThresholdMB int64         `yaml:"memory_threshold_mb"`
 }
 
 
@@ -368,6 +397,14 @@ func GetDefaultConfig() Config {
 					},
 				},
 			},
+		},
+		BioTools: BioToolsConfig{
+			Enabled:           true,
+			ToolPaths:         []string{},
+			DefaultTimeout:    300,
+			MaxInstances:      10,
+			LogLevel:          "info",
+			EnableMonitoring:  true,
 		},
 	}
 }
@@ -1121,14 +1158,14 @@ const (
 	ActionTypeLog      ActionType = "log"
 )
 
-// HealthStatus represents health status
-type HealthStatus string
+// HealthStatusEnum represents health status as enum
+type HealthStatusEnum string
 
 const (
-	HealthStatusHealthy   HealthStatus = "healthy"
-	HealthStatusWarning   HealthStatus = "warning"
-	HealthStatusCritical  HealthStatus = "critical"
-	HealthStatusUnknown  HealthStatus = "unknown"
+	HealthStatusHealthy   HealthStatusEnum = "healthy"
+	HealthStatusWarning   HealthStatusEnum = "warning"
+	HealthStatusCritical  HealthStatusEnum = "critical"
+	HealthStatusUnknown  HealthStatusEnum = "unknown"
 )
 
 // HealthCheck represents a health check result
@@ -1136,7 +1173,7 @@ type HealthCheck struct {
 	ID          string                 `yaml:"id"`
 	Name        string                 `yaml:"name"`
 	Type        HealthCheckType        `yaml:"type"`
-	Status      HealthStatus           `yaml:"status"`
+	Status      HealthStatusEnum        `yaml:"status"`
 	Score       float64                `yaml:"score"` // 0-100 health score
 	Message     string                 `yaml:"message"`
 	Details     map[string]interface{} `yaml:"details"`
@@ -1185,3 +1222,61 @@ type SystemMetrics struct {
 	NetworkOut   float64 `yaml:"network_out"`   // Network outbound KB/s
 	Timestamp    time.Time `yaml:"timestamp"`
 }
+
+// MonitoringConfig configures the unified monitoring system
+type MonitoringConfig struct {
+	Enabled                 bool          `yaml:"enabled"`
+	CheckInterval          time.Duration `yaml:"check_interval"`
+	HealthCheckInterval    time.Duration `yaml:"health_check_interval"`
+	EnableHealthCheck      bool          `yaml:"enable_health_check"`
+	EnableResourceLimit    bool          `yaml:"enable_resource_limit"`
+	ResourceLimits         map[string]float64 `yaml:"resource_limits"`
+	MaxMonitoredProcesses  int           `yaml:"max_monitored_processes"`
+	PerformanceHistorySize int           `yaml:"performance_history_size"`
+	Interval               time.Duration `yaml:"interval"`
+	EnableDetailedIO       bool          `yaml:"enable_detailed_io"`
+	HealthCheckRules       []HealthCheckRule  `yaml:"health_check_rules"`
+	AutoRestartAttempt     bool          `yaml:"auto_restart_attempt"`
+	MaxRestartAttempts     int           `yaml:"max_restart_attempts"`
+}
+
+
+// HealthCheckerConfig configures the unified health checker
+type HealthCheckerConfig struct {
+	Enabled              bool              `yaml:"enabled"`
+	CheckInterval        time.Duration     `yaml:"check_interval"`
+	EnableSystemCheck    bool              `yaml:"enable_system_check"`
+	EnableProcessCheck   bool              `yaml:"enable_process_check"`
+	Rules                []HealthRule      `yaml:"rules"`
+	DefaultLoadThreshold float64           `yaml:"default_load_threshold"`
+	DefaultCPUThreshold   float64           `yaml:"default_cpu_threshold"`
+	DefaultMemoryThreshold int64            `yaml:"default_memory_threshold"`
+	DefaultIOThreshold    uint64            `yaml:"default_io_threshold"`
+	MaxHistorySize       int               `yaml:"max_history_size"`
+	EnableDetailedLogging bool              `yaml:"enable_detailed_logging"`
+	NotificationConfig    NotificationConfig `yaml:"notification_config"`
+}
+
+// NotificationConfig configures notification settings
+type NotificationConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Level     string `yaml:"level"`
+	Channel   string `yaml:"channel"`
+	Webhook   string `yaml:"webhook"`
+	Threshold int    `yaml:"threshold"`
+}
+
+// ProcessManagerConfig configures the simplified process manager
+type ProcessManagerConfig struct {
+	Enabled              bool          `yaml:"enabled"`
+	DiscoveryInterval    time.Duration `yaml:"discovery_interval"`
+	AutoDiscovery       bool          `yaml:"auto_discovery"`
+	ProcessPatterns      []string      `yaml:"process_patterns"`
+	ExcludePatterns      []string      `yaml:"exclude_patterns"`
+	MaxProcesses         int           `yaml:"max_processes"`
+	EnableUnifiedMonitor bool          `yaml:"enable_unified_monitor"`
+	MonitoringConfig     MonitoringConfig `yaml:"monitoring_config"`
+	EnableControl        bool          `yaml:"enable_control"`
+	EnableQuota          bool          `yaml:"enable_quota"`
+}
+

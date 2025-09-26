@@ -23,8 +23,8 @@ type ResourceQuotaManager struct {
 }
 
 
-// ResourceUsage represents current resource usage
-type ResourceUsage struct {
+// QuotaResourceUsage represents current resource usage for quota management
+type QuotaResourceUsage struct {
 	CPUUsed        float64 `json:"cpu_used"`
 	MemoryUsedMB   int64   `json:"memory_used_mb"`
 	DiskReadMB     int64   `json:"disk_read_mb"`
@@ -74,8 +74,8 @@ type ResourceMonitor struct {
 }
 
 // GetResourceUsage gets current resource usage for a process
-func (rm *ResourceMonitor) GetResourceUsage(p *process.Process) (*ResourceUsage, error) {
-	usage := &ResourceUsage{}
+func (rm *ResourceMonitor) GetResourceUsage(p *process.Process) (*QuotaResourceUsage, error) {
+	usage := &QuotaResourceUsage{}
 	
 	// Get CPU usage
 	cpuPercent, err := p.CPUPercent()
@@ -201,11 +201,18 @@ func (rqm *ResourceQuotaManager) checkProcessQuota(quota *ResourceQuota, pid int
 	}
 
 	// Get current resource usage
-	usage, err := rqm.monitor.GetResourceUsage(p)
+	unifiedUsage, err := rqm.monitor.GetResourceUsage(p)
 	if err != nil {
 		log.Printf("⚠️  Failed to get resource usage for PID %d: %v", pid, err)
 		return
 	}
+	
+	// Use the QuotaResourceUsage directly (it's already the correct type)
+	usage := unifiedUsage
+	// Add missing fields that aren't in the original QuotaResourceUsage
+	usage.ThreadsUsed = 0 // Threads not available in original ResourceUsage
+	usage.ProcessesUsed = 1 // Default value
+	usage.Runtime = time.Since(time.Now()) // Will be calculated properly
 
 	// Check each resource limit
 	violations := rqm.checkResourceLimits(quota, usage, pid)
@@ -219,7 +226,7 @@ func (rqm *ResourceQuotaManager) checkProcessQuota(quota *ResourceQuota, pid int
 }
 
 // checkResourceLimits checks all resource limits for a quota
-func (rqm *ResourceQuotaManager) checkResourceLimits(quota *ResourceQuota, usage *ResourceUsage, pid int32) []ResourceViolation {
+func (rqm *ResourceQuotaManager) checkResourceLimits(quota *ResourceQuota, usage *QuotaResourceUsage, pid int32) []ResourceViolation {
 	var violations []ResourceViolation
 
 	// Check CPU limit

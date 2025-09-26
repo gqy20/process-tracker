@@ -49,20 +49,30 @@ type App struct {
 	storageManager  *StorageManager
 	useStorageManager bool
 	
-	// Process control management
-	ProcessController *ProcessController
+	// Unified monitoring system
+	UnifiedMonitor *UnifiedMonitor
 	
-	// Resource quota management
+	// Simplified process management
+	SimplifiedProcessManager *SimplifiedProcessManager
+	
+	// Unified health checker
+	UnifiedHealthChecker *UnifiedHealthChecker
+	
+	// Resource quota management (retained for quota functionality)
 	QuotaManager *ResourceQuotaManager
 	
-	// Process discovery management
-	ProcessDiscovery *ProcessDiscovery
-	
-	// Task management
+	// Task management (retained for task functionality)
 	TaskManager *TaskManager
 	
-	// Health check and alerting
-	HealthChecker *HealthChecker
+	// Bioinformatics tools management (retained for bio tools)
+	BioToolsManager interface {
+		GetAvailableTools() map[string]*BioToolInfo
+		GetToolInfo(toolID string) (*BioToolInfo, error)
+		RunTool(toolID string, args []string, workingDir string, inputFiles []string) (*BioToolInstance, error)
+		GetActiveInstances() map[string]*BioToolInstance
+		GetToolStatus(instanceID string) (map[string]interface{}, error)
+		StopTool(instanceID string) error
+	}
 }
 
 // NewApp creates a new App instance
@@ -83,15 +93,36 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.storageManager = NewStorageManager(dataFile, config.Storage)
 	}
 	
-	// Initialize process controller if enabled
-	if config.ProcessControl.Enabled {
-		controllerConfig := ControllerConfig{
-			EnableAutoRestart: config.ProcessControl.EnableAutoRestart,
-			MaxRestarts:       config.ProcessControl.MaxRestarts,
-			RestartDelay:      config.ProcessControl.RestartDelay,
-			CheckInterval:     config.ProcessControl.CheckInterval,
+	// Initialize unified monitoring system
+	if config.Monitoring.Enabled {
+		app.UnifiedMonitor = NewUnifiedMonitor(config.Monitoring, app)
+	}
+	
+	// Initialize simplified process manager
+	if config.ProcessDiscovery.Enabled || config.ProcessControl.Enabled {
+		// Convert ProcessDiscoveryConfig to ProcessManagerConfig
+		processManagerConfig := ProcessManagerConfig{
+			Enabled:           config.ProcessDiscovery.Enabled,
+			DiscoveryInterval: config.ProcessDiscovery.DiscoveryInterval,
+			AutoDiscovery:    config.ProcessDiscovery.AutoManage,
+			ProcessPatterns:  config.ProcessDiscovery.ProcessPatterns,
+			ExcludePatterns:  config.ProcessDiscovery.ExcludePatterns,
+			MaxProcesses:     config.ProcessDiscovery.MaxProcesses,
+			EnableControl:    config.ProcessControl.Enabled,
 		}
-		app.ProcessController = NewProcessController(controllerConfig)
+		app.SimplifiedProcessManager = NewSimplifiedProcessManager(processManagerConfig, app)
+	}
+	
+	// Initialize unified health checker
+	if config.HealthCheck.Enabled {
+		// Convert HealthCheckConfig to HealthCheckerConfig
+		healthCheckerConfig := HealthCheckerConfig{
+			Enabled:           config.HealthCheck.Enabled,
+			CheckInterval:     config.HealthCheck.CheckInterval,
+			EnableSystemCheck: true,
+			EnableProcessCheck: true,
+		}
+		app.UnifiedHealthChecker = NewUnifiedHealthChecker(healthCheckerConfig, app)
 	}
 	
 	// Initialize resource quota manager if enabled
@@ -99,19 +130,22 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.QuotaManager = NewResourceQuotaManager(config.ResourceQuota, app)
 	}
 	
-	// Initialize process discovery manager if enabled
-	if config.ProcessDiscovery.Enabled {
-		app.ProcessDiscovery = NewProcessDiscovery(config.ProcessDiscovery, app)
-	}
-	
 	// Initialize task manager if enabled
 	if config.TaskManager.Enabled {
 		app.TaskManager = NewTaskManager(config.TaskManager, app)
 	}
 	
-	// Initialize health checker if enabled
-	if config.HealthCheck.Enabled {
-		app.HealthChecker = NewHealthChecker(config.HealthCheck, app)
+	// Initialize bioinformatics tools manager if enabled
+	if config.BioTools.Enabled {
+		// Create simplified bio tools manager config
+		bioToolsConfig := &BioToolsConfig{
+			ToolPaths:        config.BioTools.ToolPaths,
+			DefaultTimeout:   config.BioTools.DefaultTimeout,
+			MaxInstances:     config.BioTools.MaxInstances,
+			LogLevel:         config.BioTools.LogLevel,
+			EnableMonitoring: config.Monitoring.Enabled,
+		}
+		app.BioToolsManager = NewBioToolsManager(bioToolsConfig, app.SimplifiedProcessManager)
 	}
 	
 	return app
@@ -125,9 +159,23 @@ func (a *App) Initialize() error {
 		}
 	}
 	
-	// Start process controller if enabled
-	if a.ProcessController != nil {
-		a.ProcessController.Start()
+	// Start unified monitoring system
+	if a.UnifiedMonitor != nil {
+		if err := a.UnifiedMonitor.Start(); err != nil {
+			return err
+		}
+	}
+	
+	// Start simplified process manager
+	if a.SimplifiedProcessManager != nil {
+		a.SimplifiedProcessManager.Start()
+	}
+	
+	// Start unified health checker
+	if a.UnifiedHealthChecker != nil {
+		if err := a.UnifiedHealthChecker.Start(); err != nil {
+			return err
+		}
 	}
 	
 	// Start resource quota manager if enabled
@@ -135,20 +183,12 @@ func (a *App) Initialize() error {
 		a.QuotaManager.Start()
 	}
 	
-	// Start process discovery manager if enabled
-	if a.ProcessDiscovery != nil {
-		a.ProcessDiscovery.Start()
-	}
-	
 	// Start task manager if enabled
 	if a.TaskManager != nil {
 		a.TaskManager.Start()
 	}
 	
-	// Start health checker if enabled
-	if a.HealthChecker != nil {
-		a.HealthChecker.Start()
-	}
+	// Note: Simplified BioToolsManager doesn't need explicit Start() method
 	
 	return nil
 }
@@ -702,91 +742,110 @@ func (a *App) GetTotalRecords() (int, error) {
 	return count, scanner.Err()
 }
 
-// InitializeProcessControl initializes the process control system
-func (a *App) InitializeProcessControl() error {
-	if a.ProcessController == nil {
-		return fmt.Errorf("process controller is not enabled")
+// GetMonitoredProcesses returns all monitored processes
+func (a *App) GetMonitoredProcesses() map[int32]*MonitoredProcess {
+	if a.UnifiedMonitor == nil {
+		return make(map[int32]*MonitoredProcess)
 	}
 	
-	// Start any pre-configured managed processes
-	for _, procConfig := range a.Config.ProcessControl.ManagedProcesses {
-		_, err := a.ProcessController.StartProcess(
-			procConfig.Name,
-			procConfig.Command,
-			procConfig.WorkingDir,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to start managed process %s: %w", procConfig.Name, err)
-		}
+	a.UnifiedMonitor.mutex.RLock()
+	defer a.UnifiedMonitor.mutex.RUnlock()
+	
+	// Return a copy of the processes map
+	processes := make(map[int32]*MonitoredProcess)
+	for pid, process := range a.UnifiedMonitor.processes {
+		processes[pid] = process
 	}
 	
-	return nil
+	return processes
 }
 
-// StartProcess starts a new managed process
+// StartProcess starts a new managed process using simplified process manager
 func (a *App) StartProcess(name string, command []string, workingDir string) error {
-	if a.ProcessController == nil {
-		return fmt.Errorf("process controller is not enabled")
+	if a.SimplifiedProcessManager == nil {
+		return fmt.Errorf("process management is not enabled")
 	}
 	
-	proc, err := a.ProcessController.StartProcess(name, command, workingDir)
-	if err != nil {
-		return err
-	}
-	
-	fmt.Printf("✅ Started process %s (PID: %d)\n", name, proc.PID)
-	return nil
+	return a.SimplifiedProcessManager.StartProcess(name, command, workingDir)
 }
 
 // StopProcess stops a managed process
 func (a *App) StopProcess(pid int32) error {
-	if a.ProcessController == nil {
-		return fmt.Errorf("process controller is not enabled")
+	if a.SimplifiedProcessManager == nil {
+		return fmt.Errorf("process management is not enabled")
 	}
 	
-	return a.ProcessController.StopProcess(pid)
+	return a.SimplifiedProcessManager.StopProcess(pid)
 }
 
 // RestartProcess restarts a managed process
 func (a *App) RestartProcess(pid int32) error {
-	if a.ProcessController == nil {
-		return fmt.Errorf("process controller is not enabled")
+	if a.SimplifiedProcessManager == nil {
+		return fmt.Errorf("process management is not enabled")
 	}
 	
-	return a.ProcessController.RestartProcess(pid)
+	return a.SimplifiedProcessManager.RestartProcess(pid)
 }
 
 // GetManagedProcesses returns all managed processes
-func (a *App) GetManagedProcesses() []*ManagedProcess {
-	if a.ProcessController == nil {
-		return []*ManagedProcess{}
+func (a *App) GetManagedProcesses() []*ProcessInfo {
+	if a.SimplifiedProcessManager == nil {
+		return []*ProcessInfo{}
 	}
 	
-	return a.ProcessController.GetManagedProcesses()
+	extendedProcesses := a.SimplifiedProcessManager.GetAllProcesses()
+	// Convert ExtendedProcessInfo to ProcessInfo
+	processes := make([]*ProcessInfo, len(extendedProcesses))
+	for i, extProc := range extendedProcesses {
+		processes[i] = &ProcessInfo{
+			Pid:         extProc.Pid,
+			Name:        extProc.Name,
+			Cmdline:     extProc.Cmdline,
+			Cwd:         "", // Not available in ExtendedProcessInfo
+			CPUPercent:  0, // Will be filled by resource usage if available
+			MemoryMB:    0, // Will be filled by resource usage if available
+			Threads:     0, // Will be filled by resource usage if available
+			DiskReadMB:  0, // Will be filled by resource usage if available
+			DiskWriteMB: 0, // Will be filled by resource usage if available
+			NetSentKB:   0, // Will be filled by resource usage if available
+			NetRecvKB:   0, // Will be filled by resource usage if available
+		}
+		// Fill in resource usage if available
+		if extProc.ResourceUsage != nil {
+			processes[i].CPUPercent = extProc.ResourceUsage.CPUUsed
+			processes[i].MemoryMB = float64(extProc.ResourceUsage.MemoryUsedMB)
+			processes[i].Threads = 0 // Threads not available in unified ResourceUsage
+			processes[i].DiskReadMB = float64(extProc.ResourceUsage.DiskReadMB)
+			processes[i].DiskWriteMB = float64(extProc.ResourceUsage.DiskWriteMB)
+			processes[i].NetSentKB = float64(extProc.ResourceUsage.NetworkInKB)
+			processes[i].NetRecvKB = float64(extProc.ResourceUsage.NetworkOutKB)
+		}
+	}
+	return processes
 }
 
 // GetProcessByName returns a managed process by name
-func (a *App) GetProcessByName(name string) (*ManagedProcess, error) {
-	if a.ProcessController == nil {
-		return nil, fmt.Errorf("process controller is not enabled")
+func (a *App) GetProcessByName(name string) (*ProcessInfo, error) {
+	if a.SimplifiedProcessManager == nil {
+		return nil, fmt.Errorf("process management is not enabled")
 	}
 	
-	return a.ProcessController.GetProcessByName(name)
+	return a.SimplifiedProcessManager.GetProcessByName(name)
 }
 
 // GetProcessEvents returns the process event channel
-func (a *App) GetProcessEvents() <-chan ProcessEvent {
-	if a.ProcessController == nil {
-		return make(chan ProcessEvent)
+func (a *App) GetProcessEvents() <-chan SimplifiedProcessEvent {
+	if a.SimplifiedProcessManager == nil {
+		return make(chan SimplifiedProcessEvent)
 	}
 	
-	return a.ProcessController.Events()
+	return a.SimplifiedProcessManager.Events()
 }
 
 // StopProcessController stops the process controller and all managed processes
 func (a *App) StopProcessController() {
-	if a.ProcessController != nil {
-		a.ProcessController.Stop()
+	if a.SimplifiedProcessManager != nil {
+		a.SimplifiedProcessManager.Stop()
 	}
 }
 
@@ -797,10 +856,10 @@ func (a *App) StopQuotaManager() {
 	}
 }
 
-// StopProcessDiscovery stops the process discovery manager
+// StopProcessDiscovery stops the process discovery manager (now uses SimplifiedProcessManager)
 func (a *App) StopProcessDiscovery() {
-	if a.ProcessDiscovery != nil {
-		a.ProcessDiscovery.Stop()
+	if a.SimplifiedProcessManager != nil {
+		a.SimplifiedProcessManager.Stop()
 	}
 }
 
@@ -872,71 +931,81 @@ func (a *App) GetQuotaStats() QuotaStats {
 }
 
 // GetDiscoveredProcesses returns all automatically discovered processes
-func (a *App) GetDiscoveredProcesses() []*DiscoveredProcess {
-	if a.ProcessDiscovery == nil {
-		return []*DiscoveredProcess{}
+func (a *App) GetDiscoveredProcesses() []*ProcessInfo {
+	if a.SimplifiedProcessManager == nil {
+		return []*ProcessInfo{}
 	}
 	
-	return a.ProcessDiscovery.GetDiscoveredProcesses()
+	return a.SimplifiedProcessManager.GetAllProcessesAsProcessInfo()
 }
 
 // GetProcessGroups returns all process groups
-func (a *App) GetProcessGroups() map[string]*ProcessGroup {
-	if a.ProcessDiscovery == nil {
-		return make(map[string]*ProcessGroup)
+func (a *App) GetProcessGroups() map[string]*SimplifiedProcessGroup {
+	if a.SimplifiedProcessManager == nil {
+		return make(map[string]*SimplifiedProcessGroup)
 	}
 	
-	return a.ProcessDiscovery.GetProcessGroups()
+	return a.SimplifiedProcessManager.GetProcessGroupsAsMap()
 }
 
 // GetProcessesByGroup returns processes in a specific group
-func (a *App) GetProcessesByGroup(groupName string) []*DiscoveredProcess {
-	if a.ProcessDiscovery == nil {
-		return []*DiscoveredProcess{}
+func (a *App) GetProcessesByGroup(groupName string) []*ProcessInfo {
+	if a.SimplifiedProcessManager == nil {
+		return []*ProcessInfo{}
 	}
 	
-	return a.ProcessDiscovery.GetProcessesByGroup(groupName)
+	return a.SimplifiedProcessManager.GetProcessesByGroupAsProcessInfo(groupName)
 }
 
 // GetDiscoveryStats returns statistics about process discovery
-func (a *App) GetDiscoveryStats() DiscoveryStats {
-	if a.ProcessDiscovery == nil {
-		return DiscoveryStats{
-			TotalDiscovered: 0,
-			TotalGroups:     0,
-			GroupCounts:     make(map[string]int),
-			AutoManaged:     0,
-		}
+func (a *App) GetDiscoveryStats() ProcessStats {
+	if a.SimplifiedProcessManager == nil {
+		return ProcessStats{}
 	}
 	
-	return a.ProcessDiscovery.GetDiscoveryStats()
+	// For now, return basic discovery stats
+	return ProcessStats{
+		PID:          0, // Not applicable for discovery stats
+		Name:         "discovery",
+		Cmdline:      "",
+		Status:       "active",
+		CPUUsed:      0,
+		MemoryUsedMB: 0,
+		IOReadBytes:  0,
+		IOWriteBytes: 0,
+		IOReadCount:  0,
+		IOWriteCount: 0,
+		FileDescriptors: 0,
+		Threads:      0,
+		LastUpdated:  time.Now(),
+	}
 }
 
 // AddCustomGroup adds a custom process group
 func (a *App) AddCustomGroup(name, pattern string, autoManage bool, quotaName string) error {
-	if a.ProcessDiscovery == nil {
-		return fmt.Errorf("process discovery is not enabled")
+	if a.SimplifiedProcessManager == nil {
+		return fmt.Errorf("process management is not enabled")
 	}
 	
-	return a.ProcessDiscovery.AddCustomGroup(name, pattern, autoManage, quotaName)
+	return a.SimplifiedProcessManager.AddCustomGroupWithQuota(name, pattern, autoManage, quotaName)
 }
 
 // RemoveCustomGroup removes a custom process group
 func (a *App) RemoveCustomGroup(name string) error {
-	if a.ProcessDiscovery == nil {
-		return fmt.Errorf("process discovery is not enabled")
+	if a.SimplifiedProcessManager == nil {
+		return fmt.Errorf("process management is not enabled")
 	}
 	
-	return a.ProcessDiscovery.RemoveCustomGroup(name)
+	return a.SimplifiedProcessManager.RemoveCustomGroup(name)
 }
 
 // GetDiscoveryEvents returns the discovery event channel
-func (a *App) GetDiscoveryEvents() <-chan ProcessDiscoveryEvent {
-	if a.ProcessDiscovery == nil {
-		return make(chan ProcessDiscoveryEvent)
+func (a *App) GetDiscoveryEvents() <-chan SimplifiedProcessEvent {
+	if a.SimplifiedProcessManager == nil {
+		return make(chan SimplifiedProcessEvent)
 	}
 	
-	return a.ProcessDiscovery.Events()
+	return a.SimplifiedProcessManager.Events()
 }
 
 // GetPID returns the process ID of the current application
@@ -1052,4 +1121,9 @@ func (a *App) GetTaskEvents() <-chan TaskEvent {
 	}
 	
 	return a.TaskManager.events
+}
+
+// StopBioToolsManager stops the bioinformatics tools manager
+func (a *App) StopBioToolsManager() {
+	// Simplified BioToolsManager doesn't need explicit Stop method
 }
