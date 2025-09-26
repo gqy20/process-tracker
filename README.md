@@ -219,9 +219,36 @@ process-tracker/
 │   │   ├── unified_monitor_test.go
 │   │   └── bio_tools_manager_test.go
 │   └── README.md        # 测试文档
+├── releases/             # 自动构建版本
+│   └── v0.3.7/          # 版本目录
+├── .git/hooks/          # Git hooks
 ├── build.sh             # 构建脚本
 ├── CLAUDE.md           # 开发文档
 └── README.md           # 项目说明
+```
+
+### 自动构建
+
+项目配置了 Git post-commit hook，每次提交后会自动：
+
+1. **自动版本检测**: 从 `main.go` 中读取当前版本
+2. **多平台构建**: 为支持的平台构建可执行文件
+3. **文件组织**: 构建文件存储在 `releases/v{VERSION}/` 目录
+4. **构建报告**: 显示构建状态和文件大小
+
+#### 构建的平台版本
+- Linux AMD64 (当前平台)
+- macOS Intel (AMD64)
+- macOS ARM64 (Apple Silicon)
+- Linux ARM64
+
+#### 自动构建文件位置
+```
+releases/v0.3.7/
+├── process-tracker           # Linux AMD64
+├── process-tracker-macos      # macOS Intel
+├── process-tracker-macos-arm64 # macOS ARM64
+└── process-tracker-linux-arm64 # Linux ARM64
 ```
 
 ## 📄 许可证
