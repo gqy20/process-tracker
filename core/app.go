@@ -40,13 +40,19 @@ type App struct {
 	bufferSize      int
 	flushInterval   time.Duration
 	lastFlushTime   time.Time
+	
+	// Traditional file handling (for backward compatibility)
 	file            *os.File
 	writer          *bufio.Writer
+	
+	// Storage management
+	storageManager  *StorageManager
+	useStorageManager bool
 }
 
 // NewApp creates a new App instance
 func NewApp(dataFile string, interval time.Duration, config Config) *App {
-	return &App{
+	app := &App{
 		DataFile:       dataFile,
 		Interval:       interval,
 		Config:         config,
@@ -54,7 +60,23 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		flushInterval:  30 * time.Second, // Flush every 30 seconds regardless of buffer size
 		buffer:         make([]ResourceRecord, 0, 100),
 		lastFlushTime:  time.Now(),
+		useStorageManager: config.Storage.MaxFileSizeMB > 0, // Enable storage manager if max size is set
 	}
+	
+	// Initialize storage manager if enabled
+	if app.useStorageManager {
+		app.storageManager = NewStorageManager(dataFile, config.Storage)
+	}
+	
+	return app
+}
+
+// Initialize initializes the application and storage manager
+func (a *App) Initialize() error {
+	if a.useStorageManager && a.storageManager != nil {
+		return a.storageManager.Initialize()
+	}
+	return nil
 }
 
 // GetProcessInfo gathers information about a process
@@ -197,6 +219,10 @@ func (a *App) CloseFile() error {
 		}
 	}
 	
+	if a.useStorageManager && a.storageManager != nil {
+		return a.storageManager.Close()
+	}
+	
 	if a.writer != nil {
 		if err := a.writer.Flush(); err != nil {
 			return err
@@ -220,35 +246,60 @@ func (a *App) flushBuffer() error {
 		return nil
 	}
 	
-	if a.file == nil || a.writer == nil {
-		if err := a.initializeFile(); err != nil {
-			return err
+	if a.useStorageManager && a.storageManager != nil {
+		// Use storage manager for writing
+		for _, record := range a.buffer {
+			line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%t,\"%s\",\"%s\",%s",
+				record.Timestamp.Format("2006-01-02 15:04:05"),
+				record.Name,
+				record.CPUPercent,
+				record.MemoryMB,
+				record.Threads,
+				record.DiskReadMB,
+				record.DiskWriteMB,
+				record.NetSentKB,
+				record.NetRecvKB,
+				record.IsActive,
+				record.Command,
+				record.WorkingDir,
+				record.Category)
+			
+			if err := a.storageManager.WriteRecord(line); err != nil {
+				return err
+			}
 		}
-	}
-	
-	for _, record := range a.buffer {
-		line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%t,\"%s\",\"%s\",%s\n",
-			record.Timestamp.Format("2006-01-02 15:04:05"),
-			record.Name,
-			record.CPUPercent,
-			record.MemoryMB,
-			record.Threads,
-			record.DiskReadMB,
-			record.DiskWriteMB,
-			record.NetSentKB,
-			record.NetRecvKB,
-			record.IsActive,
-			record.Command,
-			record.WorkingDir,
-			record.Category)
+	} else {
+		// Use traditional file writing
+		if a.file == nil || a.writer == nil {
+			if err := a.initializeFile(); err != nil {
+				return err
+			}
+		}
 		
-		if _, err := a.writer.WriteString(line); err != nil {
+		for _, record := range a.buffer {
+			line := fmt.Sprintf("%s,%s,%.2f,%.2f,%d,%.2f,%.2f,%.2f,%.2f,%t,\"%s\",\"%s\",%s\n",
+				record.Timestamp.Format("2006-01-02 15:04:05"),
+				record.Name,
+				record.CPUPercent,
+				record.MemoryMB,
+				record.Threads,
+				record.DiskReadMB,
+				record.DiskWriteMB,
+				record.NetSentKB,
+				record.NetRecvKB,
+				record.IsActive,
+				record.Command,
+				record.WorkingDir,
+				record.Category)
+			
+			if _, err := a.writer.WriteString(line); err != nil {
+				return err
+			}
+		}
+		
+		if err := a.writer.Flush(); err != nil {
 			return err
 		}
-	}
-	
-	if err := a.writer.Flush(); err != nil {
-		return err
 	}
 	
 	a.buffer = a.buffer[:0] // Clear buffer

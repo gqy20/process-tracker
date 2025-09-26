@@ -17,6 +17,16 @@ type Config struct {
 	UseSmartCategories   bool    // Whether to use smart application categorization
 	MaxCommandLength     int     // Maximum command length to display
 	MaxDirLength         int     // Maximum directory length to display
+	Storage              StorageConfig // Storage management configuration
+}
+
+// StorageConfig represents storage management configuration
+type StorageConfig struct {
+	MaxFileSizeMB      int     `yaml:"max_file_size_mb"`      // Maximum file size in MB before rotation
+	MaxFiles           int     `yaml:"max_files"`              // Maximum number of files to keep
+	CompressAfterDays  int     `yaml:"compress_after_days"`   // Compress files after N days
+	CleanupAfterDays   int     `yaml:"cleanup_after_days"`    // Delete files after N days
+	AutoCleanup        bool    `yaml:"auto_cleanup"`          // Enable automatic cleanup
 }
 
 // getDefaultConfig returns the default configuration
@@ -28,6 +38,13 @@ func GetDefaultConfig() Config {
 		UseSmartCategories:   true,
 		MaxCommandLength:     100,
 		MaxDirLength:         50,
+		Storage: StorageConfig{
+			MaxFileSizeMB:     100,
+			MaxFiles:         10,
+			CompressAfterDays: 3,
+			CleanupAfterDays:  30,
+			AutoCleanup:      true,
+		},
 	}
 }
 

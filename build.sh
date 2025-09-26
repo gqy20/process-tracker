@@ -6,7 +6,7 @@
 set -e
 
 PROJECT_NAME="process-tracker"
-VERSION="0.2.2"
+VERSION="0.3.0"
 RELEASE_DIR="releases/v${VERSION}"
 
 echo "🔨 Building process-tracker for multiple platforms..."
@@ -19,6 +19,11 @@ mkdir -p "${RELEASE_DIR}"
 echo "📦 Building for $(go env GOOS)/$(go env GOARCH)..."
 go build -ldflags="-X main.Version=${VERSION}" -o "${RELEASE_DIR}/${PROJECT_NAME}" .
 echo "✅ Built: ${RELEASE_DIR}/${PROJECT_NAME}"
+
+# Also build in main directory for easy access
+echo "📦 Building current version for main directory..."
+go build -ldflags="-X main.Version=${VERSION}" -o "${PROJECT_NAME}" .
+echo "✅ Built: ./${PROJECT_NAME}"
 
 # Build for Windows
 echo "📦 Building for Windows/amd64..."

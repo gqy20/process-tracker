@@ -17,7 +17,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.2.2"
+var Version = "0.3.0"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -218,6 +218,18 @@ func (a *App) startMonitoring() {
 	log.Printf("⏱️  监控间隔: %v", a.Interval)
 	log.Printf("⚙️  配置: 统计粒度=%s, 显示命令=%v, 显示目录=%v, 智能分类=%v", 
 		a.Config.StatisticsGranularity, a.Config.ShowCommands, a.Config.ShowWorkingDirs, a.Config.UseSmartCategories)
+	
+	// Log storage configuration
+	if a.Config.Storage.MaxFileSizeMB > 0 {
+		log.Printf("💾 存储管理: 最大文件=%dMB, 保留文件=%d, 压缩天数=%d, 清理天数=%d", 
+			a.Config.Storage.MaxFileSizeMB, a.Config.Storage.MaxFiles, 
+			a.Config.Storage.CompressAfterDays, a.Config.Storage.CleanupAfterDays)
+	}
+	
+	// Initialize storage manager if enabled
+	if err := a.Initialize(); err != nil {
+		log.Fatalf("❌ 初始化失败: %v", err)
+	}
 	
 	// Check data file accessibility
 	if _, err := os.Stat(a.DataFile); os.IsNotExist(err) {
