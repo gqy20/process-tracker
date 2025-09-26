@@ -6,10 +6,10 @@ import (
 	"log"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 	"github.com/shirou/gopsutil/v3/process"
 )
+
 
 // ResourceQuotaManager manages resource quotas for processes
 type ResourceQuotaManager struct {
@@ -324,7 +324,7 @@ func (rqm *ResourceQuotaManager) throttleProcess(pid int32) {
 	// Try to reduce process priority (Unix-like systems only)
 	// This is a simplified implementation - in practice, you might use more sophisticated methods
 	if runtime.GOOS != "windows" {
-		_ = p.SendSignal(syscall.SIGUSR1) // Custom signal for throttling
+		_ = p.SendSignal(GetSIGUSR1()) // Custom signal for throttling
 	} else {
 		// On Windows, we could use other methods like priority class adjustment
 		log.Printf("🐌 Process throttling not implemented for Windows PID %d", pid)
