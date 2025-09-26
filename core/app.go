@@ -48,6 +48,9 @@ type App struct {
 	// Storage management
 	storageManager  *StorageManager
 	useStorageManager bool
+	
+	// Process control management
+	ProcessController *ProcessController
 }
 
 // NewApp creates a new App instance
@@ -68,14 +71,33 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.storageManager = NewStorageManager(dataFile, config.Storage)
 	}
 	
+	// Initialize process controller if enabled
+	if config.ProcessControl.Enabled {
+		controllerConfig := ControllerConfig{
+			EnableAutoRestart: config.ProcessControl.EnableAutoRestart,
+			MaxRestarts:       config.ProcessControl.MaxRestarts,
+			RestartDelay:      config.ProcessControl.RestartDelay,
+			CheckInterval:     config.ProcessControl.CheckInterval,
+		}
+		app.ProcessController = NewProcessController(controllerConfig)
+	}
+	
 	return app
 }
 
 // Initialize initializes the application and storage manager
 func (a *App) Initialize() error {
 	if a.useStorageManager && a.storageManager != nil {
-		return a.storageManager.Initialize()
+		if err := a.storageManager.Initialize(); err != nil {
+			return err
+		}
 	}
+	
+	// Start process controller if enabled
+	if a.ProcessController != nil {
+		a.ProcessController.Start()
+	}
+	
 	return nil
 }
 
@@ -626,4 +648,92 @@ func (a *App) GetTotalRecords() (int, error) {
 	}
 
 	return count, scanner.Err()
+}
+
+// InitializeProcessControl initializes the process control system
+func (a *App) InitializeProcessControl() error {
+	if a.ProcessController == nil {
+		return fmt.Errorf("process controller is not enabled")
+	}
+	
+	// Start any pre-configured managed processes
+	for _, procConfig := range a.Config.ProcessControl.ManagedProcesses {
+		_, err := a.ProcessController.StartProcess(
+			procConfig.Name,
+			procConfig.Command,
+			procConfig.WorkingDir,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to start managed process %s: %w", procConfig.Name, err)
+		}
+	}
+	
+	return nil
+}
+
+// StartProcess starts a new managed process
+func (a *App) StartProcess(name string, command []string, workingDir string) error {
+	if a.ProcessController == nil {
+		return fmt.Errorf("process controller is not enabled")
+	}
+	
+	proc, err := a.ProcessController.StartProcess(name, command, workingDir)
+	if err != nil {
+		return err
+	}
+	
+	fmt.Printf("✅ Started process %s (PID: %d)\n", name, proc.PID)
+	return nil
+}
+
+// StopProcess stops a managed process
+func (a *App) StopProcess(pid int32) error {
+	if a.ProcessController == nil {
+		return fmt.Errorf("process controller is not enabled")
+	}
+	
+	return a.ProcessController.StopProcess(pid)
+}
+
+// RestartProcess restarts a managed process
+func (a *App) RestartProcess(pid int32) error {
+	if a.ProcessController == nil {
+		return fmt.Errorf("process controller is not enabled")
+	}
+	
+	return a.ProcessController.RestartProcess(pid)
+}
+
+// GetManagedProcesses returns all managed processes
+func (a *App) GetManagedProcesses() []*ManagedProcess {
+	if a.ProcessController == nil {
+		return []*ManagedProcess{}
+	}
+	
+	return a.ProcessController.GetManagedProcesses()
+}
+
+// GetProcessByName returns a managed process by name
+func (a *App) GetProcessByName(name string) (*ManagedProcess, error) {
+	if a.ProcessController == nil {
+		return nil, fmt.Errorf("process controller is not enabled")
+	}
+	
+	return a.ProcessController.GetProcessByName(name)
+}
+
+// GetProcessEvents returns the process event channel
+func (a *App) GetProcessEvents() <-chan ProcessEvent {
+	if a.ProcessController == nil {
+		return make(chan ProcessEvent)
+	}
+	
+	return a.ProcessController.Events()
+}
+
+// StopProcessController stops the process controller and all managed processes
+func (a *App) StopProcessController() {
+	if a.ProcessController != nil {
+		a.ProcessController.Stop()
+	}
 }

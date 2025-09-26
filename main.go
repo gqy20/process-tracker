@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -17,7 +18,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.0"
+var Version = "0.3.1"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -165,6 +166,29 @@ func main() {
 		app.exportData()
 	case "cleanup":
 		app.cleanupOldData()
+	case "start-process":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定进程名称")
+			fmt.Println("用法: process-tracker start-process <名称> [命令...]")
+			return
+		}
+		app.startProcess(os.Args[2:])
+	case "stop-process":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定进程名称或PID")
+			fmt.Println("用法: process-tracker stop-process <名称或PID>")
+			return
+		}
+		app.stopProcess(os.Args[2])
+	case "restart-process":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定进程名称或PID")
+			fmt.Println("用法: process-tracker restart-process <名称或PID>")
+			return
+		}
+		app.restartProcess(os.Args[2])
+	case "list-processes":
+		app.listManagedProcesses()
 	case "help":
 		app.printUsage()
 	default:
@@ -173,21 +197,29 @@ func main() {
 }
 
 func (a *App) printUsage() {
-	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.2.2")
+	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.1")
 	fmt.Println()
 	fmt.Println("使用方法:")
 	fmt.Println("  process-tracker <命令>")
 	fmt.Println()
-	fmt.Println("命令:")
-	fmt.Println("  start    开始监控进程")
-	fmt.Println("  today    显示今日使用统计")
-	fmt.Println("  week     显示本周使用统计")
-	fmt.Println("  month    显示本月使用统计")
-	fmt.Println("  details  显示详细资源使用统计")
-	fmt.Println("  export   导出数据为JSON格式")
-	fmt.Println("  cleanup  清理30天前的旧数据")
-	fmt.Println("  version  显示版本信息")
-	fmt.Println("  help     显示此帮助信息")
+	fmt.Println("监控命令:")
+	fmt.Println("  start              开始监控进程")
+	fmt.Println("  today              显示今日使用统计")
+	fmt.Println("  week               显示本周使用统计")
+	fmt.Println("  month              显示本月使用统计")
+	fmt.Println("  details            显示详细资源使用统计")
+	fmt.Println("  export             导出数据为JSON格式")
+	fmt.Println("  cleanup            清理30天前的旧数据")
+	fmt.Println()
+	fmt.Println("进程控制命令:")
+	fmt.Println("  start-process      启动指定进程")
+	fmt.Println("  stop-process       停止指定进程")
+	fmt.Println("  restart-process    重启指定进程")
+	fmt.Println("  list-processes     列出所有托管进程")
+	fmt.Println()
+	fmt.Println("其他命令:")
+	fmt.Println("  version            显示版本信息")
+	fmt.Println("  help               显示此帮助信息")
 	fmt.Println()
 	fmt.Println("配置文件:")
 	fmt.Println("  ~/.process-tracker.yaml - 控制统计粒度和显示选项")
@@ -195,6 +227,18 @@ func (a *App) printUsage() {
 	fmt.Println("    show_commands: true|false")
 	fmt.Println("    show_working_dirs: true|false")
 	fmt.Println("    use_smart_categories: true|false")
+	fmt.Println("    process_control:")
+	fmt.Println("      enabled: true|false")
+	fmt.Println("      enable_auto_restart: true|false")
+	fmt.Println("      max_restarts: 3")
+	fmt.Println("      restart_delay: 5s")
+	fmt.Println("      check_interval: 10s")
+	fmt.Println()
+	fmt.Println("v0.3.1 新特性:")
+	fmt.Println("  🎛️  进程控制 - 启动、停止、重启进程")
+	fmt.Println("  🔄 自动恢复 - 进程崩溃时自动重启")
+	fmt.Println("  📋 进程管理 - 托管进程生命周期")
+	fmt.Println("  ⚙️  配置扩展 - YAML配置进程控制选项")
 	fmt.Println()
 	fmt.Println("v0.2.2 新特性:")
 	fmt.Println("  🚀 性能优化 - 批量文件写入，减少I/O操作")
@@ -206,8 +250,10 @@ func (a *App) printUsage() {
 	fmt.Println()
 	fmt.Println("示例:")
 	fmt.Println("  process-tracker start")
+	fmt.Println("  process-tracker start-process my-server /usr/bin/server")
+	fmt.Println("  process-tracker stop-process my-server")
+	fmt.Println("  process-tracker list-processes")
 	fmt.Println("  process-tracker today")
-	fmt.Println("  process-tracker month")
 	fmt.Println("  process-tracker details")
 	fmt.Println("  process-tracker cleanup")
 }
@@ -726,4 +772,157 @@ func (a *App) exportData() {
 	fmt.Printf("   - 本周进程: %d\n", len(weekStats))
 	fmt.Printf("   - 本月进程: %d\n", len(monthStats))
 	fmt.Printf("📏 文件大小: %.2f KB\n", float64(len(jsonData))/1024.0)
+}
+
+// startProcess starts a managed process
+func (a *App) startProcess(args []string) {
+	if !a.Config.ProcessControl.Enabled {
+		fmt.Println("❌ 进程控制功能未启用，请检查配置文件")
+		return
+	}
+	
+	name := args[0]
+	var command []string
+	var workingDir string
+	
+	if len(args) > 1 {
+		command = args[1:]
+	} else {
+		// If no command provided, try to find it in config
+		found := false
+		for _, proc := range a.Config.ProcessControl.ManagedProcesses {
+			if proc.Name == name {
+				command = proc.Command
+				workingDir = proc.WorkingDir
+				found = true
+				break
+			}
+		}
+		if !found {
+			fmt.Println("❌ 未找到进程配置，请提供命令")
+			return
+		}
+	}
+	
+	if err := a.InitializeProcessControl(); err != nil {
+		fmt.Printf("❌ 初始化进程控制失败: %v\n", err)
+		return
+	}
+	
+	if err := a.StartProcess(name, command, workingDir); err != nil {
+		fmt.Printf("❌ 启动进程失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 进程 %s 已启动\n", name)
+}
+
+// stopProcess stops a managed process
+func (a *App) stopProcess(identifier string) {
+	if !a.Config.ProcessControl.Enabled {
+		fmt.Println("❌ 进程控制功能未启用，请检查配置文件")
+		return
+	}
+	
+	// Try to find process by name first
+	proc, err := a.GetProcessByName(identifier)
+	if err == nil {
+		if err := a.StopProcess(proc.PID); err != nil {
+			fmt.Printf("❌ 停止进程失败: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ 进程 %s (PID: %d) 已停止\n", identifier, proc.PID)
+		return
+	}
+	
+	// If not found by name, try to parse as PID
+	pid, err := strconv.ParseInt(identifier, 10, 32)
+	if err == nil {
+		if err := a.StopProcess(int32(pid)); err != nil {
+			fmt.Printf("❌ 停止进程失败: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ 进程 PID %d 已停止\n", pid)
+		return
+	}
+	
+	fmt.Printf("❌ 未找到进程: %s\n", identifier)
+}
+
+// restartProcess restarts a managed process
+func (a *App) restartProcess(identifier string) {
+	if !a.Config.ProcessControl.Enabled {
+		fmt.Println("❌ 进程控制功能未启用，请检查配置文件")
+		return
+	}
+	
+	// Try to find process by name first
+	proc, err := a.GetProcessByName(identifier)
+	if err == nil {
+		if err := a.RestartProcess(proc.PID); err != nil {
+			fmt.Printf("❌ 重启进程失败: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ 进程 %s 已重启\n", identifier)
+		return
+	}
+	
+	// If not found by name, try to parse as PID
+	pid, err := strconv.ParseInt(identifier, 10, 32)
+	if err == nil {
+		if err := a.RestartProcess(int32(pid)); err != nil {
+			fmt.Printf("❌ 重启进程失败: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ 进程 PID %d 已重启\n", pid)
+		return
+	}
+	
+	fmt.Printf("❌ 未找到进程: %s\n", identifier)
+}
+
+// listManagedProcesses lists all managed processes
+func (a *App) listManagedProcesses() {
+	if !a.Config.ProcessControl.Enabled {
+		fmt.Println("❌ 进程控制功能未启用，请检查配置文件")
+		return
+	}
+	
+	processes := a.GetManagedProcesses()
+	if len(processes) == 0 {
+		fmt.Println("📭 当前没有托管进程")
+		return
+	}
+	
+	fmt.Println("📋 托管进程列表")
+	fmt.Println("================================")
+	fmt.Printf("%-8s %-20s %-10s %-10s %-10s %-10s\n", "PID", "名称", "状态", "重启次数", "运行时间", "退出码")
+	fmt.Printf("%-8s %-20s %-10s %-10s %-10s %-10s\n", "---", "----", "----", "----", "----", "----")
+	
+	for _, proc := range processes {
+		uptime := time.Since(proc.StartTime).Round(time.Second)
+		status := string(proc.Status)
+		if len(status) > 10 {
+			status = status[:7] + "..."
+		}
+		
+		fmt.Printf("%-8d %-20s %-10s %-10d %-10v %-10d\n",
+			proc.PID,
+			proc.Name,
+			status,
+			proc.Restarts,
+			uptime,
+			proc.ExitCode)
+	}
+	
+	// Show process controller statistics
+	if a.ProcessController != nil {
+		stats := a.ProcessController.GetProcessStats()
+		fmt.Printf("\n📊 进程控制器统计:\n")
+		fmt.Printf("   总进程数: %d\n", stats.TotalProcesses)
+		fmt.Printf("   运行中: %d\n", stats.Running)
+		fmt.Printf("   已停止: %d\n", stats.Stopped)
+		fmt.Printf("   失败: %d\n", stats.Failed)
+		fmt.Printf("   重启中: %d\n", stats.Restarting)
+	}
 }

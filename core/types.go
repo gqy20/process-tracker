@@ -18,6 +18,27 @@ type Config struct {
 	MaxCommandLength     int     // Maximum command length to display
 	MaxDirLength         int     // Maximum directory length to display
 	Storage              StorageConfig // Storage management configuration
+	
+	// Process control configuration
+	ProcessControl       ProcessControlConfig `yaml:"process_control"`
+}
+
+// ProcessControlConfig configures process management features
+type ProcessControlConfig struct {
+	Enabled           bool          `yaml:"enabled"`
+	EnableAutoRestart bool          `yaml:"enable_auto_restart"`
+	MaxRestarts       int           `yaml:"max_restarts"`
+	RestartDelay      time.Duration `yaml:"restart_delay"`
+	CheckInterval     time.Duration `yaml:"check_interval"`
+	ManagedProcesses  []ManagedProcessConfig `yaml:"managed_processes"`
+}
+
+// ManagedProcessConfig defines a process to be managed
+type ManagedProcessConfig struct {
+	Name        string   `yaml:"name"`
+	Command     []string `yaml:"command"`
+	WorkingDir  string   `yaml:"working_dir"`
+	MaxRestarts int      `yaml:"max_restarts"`
 }
 
 // StorageConfig represents storage management configuration
@@ -44,6 +65,14 @@ func GetDefaultConfig() Config {
 			CompressAfterDays: 3,
 			CleanupAfterDays:  30,
 			AutoCleanup:      true,
+		},
+		ProcessControl: ProcessControlConfig{
+			Enabled:           true,
+			EnableAutoRestart: true,
+			MaxRestarts:       3,
+			RestartDelay:      5 * time.Second,
+			CheckInterval:     10 * time.Second,
+			ManagedProcesses:  []ManagedProcessConfig{},
 		},
 	}
 }
