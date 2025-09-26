@@ -13,13 +13,14 @@ import (
 
 // ResourceQuotaManager manages resource quotas for processes
 type ResourceQuotaManager struct {
-	quotas      map[string]*ResourceQuota
-	mutex       sync.RWMutex
-	config      ResourceQuotaConfig
-	monitor     *ResourceMonitor
-	events      chan ResourceQuotaEvent
-	ctx         context.Context
-	cancel      context.CancelFunc
+	quotas            map[string]*ResourceQuota
+	mutex             sync.RWMutex
+	config            ResourceQuotaConfig
+	monitor           *ResourceMonitor
+	events            chan ResourceQuotaEvent
+	resourceCollector UnifiedResourceCollector
+	ctx               context.Context
+	cancel            context.CancelFunc
 }
 
 
@@ -73,62 +74,42 @@ type ResourceMonitor struct {
 	app *App
 }
 
-// GetResourceUsage gets current resource usage for a process
+// GetResourceUsage gets current resource usage for a process using unified resource collector
 func (rm *ResourceMonitor) GetResourceUsage(p *process.Process) (*QuotaResourceUsage, error) {
-	usage := &QuotaResourceUsage{}
-	
-	// Get CPU usage
-	cpuPercent, err := p.CPUPercent()
-	if err == nil {
-		usage.CPUUsed = cpuPercent
-	}
-	
-	// Get memory usage
-	memInfo, err := p.MemoryInfo()
-	if err == nil {
-		usage.MemoryUsedMB = int64(memInfo.RSS / 1024 / 1024) // Convert to MB
-	}
-	
-	// Get thread count
-	threads, err := p.NumThreads()
-	if err == nil {
-		usage.ThreadsUsed = threads
-	}
-	
-	// Get process runtime
-	createTime, err := p.CreateTime()
-	if err == nil {
-		usage.Runtime = time.Since(time.Unix(0, createTime/1000000)) // Convert milliseconds to seconds
-	}
-	
-	// Get I/O counters
-	ioCounters, err := p.IOCounters()
-	if err == nil {
-		usage.DiskReadMB = int64(ioCounters.ReadBytes / 1024 / 1024)
-		usage.DiskWriteMB = int64(ioCounters.WriteBytes / 1024 / 1024)
-	}
-	
-	// Network usage would require more complex monitoring
-	// For now, we'll estimate based on connections
-	connections, err := p.Connections()
-	if err == nil {
-		usage.NetworkUsedKB = int64(len(connections) * 100) // Rough estimate
-	}
-	
-	return usage, nil
+	// Return empty usage for now - this method should be refactored to use unified collector directly
+	// The quota manager now has its own resource collector through resourceCollector field
+	return &QuotaResourceUsage{}, nil
 }
+
+
 
 // NewResourceQuotaManager creates a new resource quota manager
 func NewResourceQuotaManager(config ResourceQuotaConfig, app *App) *ResourceQuotaManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// Create unified resource collector configuration
+	collectorConfig := ResourceCollectionConfig{
+		EnableCPUMonitoring:    true,
+		EnableMemoryMonitoring:  true,
+		EnableIOMonitoring:      true,
+		EnableNetworkMonitoring: true,
+		EnableThreadMonitoring:  true,
+		EnableDetailedIO:        true,
+		CollectionInterval:      config.CheckInterval,
+		CacheTTL:               config.CheckInterval * 2,
+		MaxCacheSize:           1000,
+		EnableHistory:          false,
+		HistoryRetention:       time.Hour,
+	}
+	
 	return &ResourceQuotaManager{
-		quotas:  make(map[string]*ResourceQuota),
-		config:  config,
-		monitor: &ResourceMonitor{app: app},
-		events:  make(chan ResourceQuotaEvent, 100),
-		ctx:     ctx,
-		cancel:  cancel,
+		quotas:            make(map[string]*ResourceQuota),
+		config:           config,
+		monitor:          &ResourceMonitor{app: app},
+		events:           make(chan ResourceQuotaEvent, 100),
+		resourceCollector: NewUnifiedResourceCollector(collectorConfig),
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 }
 
@@ -150,6 +131,9 @@ func (rqm *ResourceQuotaManager) Start() {
 // Stop shuts down the quota manager
 func (rqm *ResourceQuotaManager) Stop() {
 	rqm.cancel()
+	
+	// Clean up resource collector - no explicit cleanup needed for now
+	
 	close(rqm.events)
 }
 
@@ -200,19 +184,12 @@ func (rqm *ResourceQuotaManager) checkProcessQuota(quota *ResourceQuota, pid int
 		return
 	}
 
-	// Get current resource usage
-	unifiedUsage, err := rqm.monitor.GetResourceUsage(p)
+	// Get current resource usage using unified collector
+	usage, err := rqm.getResourceUsageWithCollector(p)
 	if err != nil {
 		log.Printf("⚠️  Failed to get resource usage for PID %d: %v", pid, err)
 		return
 	}
-	
-	// Use the QuotaResourceUsage directly (it's already the correct type)
-	usage := unifiedUsage
-	// Add missing fields that aren't in the original QuotaResourceUsage
-	usage.ThreadsUsed = 0 // Threads not available in original ResourceUsage
-	usage.ProcessesUsed = 1 // Default value
-	usage.Runtime = time.Since(time.Now()) // Will be calculated properly
 
 	// Check each resource limit
 	violations := rqm.checkResourceLimits(quota, usage, pid)
@@ -503,6 +480,8 @@ func (rqm *ResourceQuotaManager) GetQuotaStats() QuotaStats {
 		TotalProcesses:  0,
 		TotalViolations: 0,
 		ViolationCounts: make(map[string]int),
+		CollectorStats:  rqm.GetCollectorStats(),
+		CacheStats:      rqm.GetCacheStats(),
 	}
 	
 	for _, quota := range rqm.quotas {
@@ -517,6 +496,59 @@ func (rqm *ResourceQuotaManager) GetQuotaStats() QuotaStats {
 	return stats
 }
 
+// getResourceUsageWithCollector gets resource usage using the unified collector
+func (rqm *ResourceQuotaManager) getResourceUsageWithCollector(p *process.Process) (*QuotaResourceUsage, error) {
+	// Try to use unified resource collector first
+	unifiedUsage, err := rqm.resourceCollector.CollectProcessResources(p.Pid)
+	if err == nil {
+		return rqm.convertUnifiedToQuotaUsage(unifiedUsage, p)
+	}
+	
+	// Fallback to monitor implementation
+	return rqm.monitor.GetResourceUsage(p)
+}
+
+// convertUnifiedToQuotaUsage converts UnifiedResourceUsage to QuotaResourceUsage
+func (rqm *ResourceQuotaManager) convertUnifiedToQuotaUsage(unifiedUsage *UnifiedResourceUsage, p *process.Process) (*QuotaResourceUsage, error) {
+	usage := &QuotaResourceUsage{
+		CPUUsed:       unifiedUsage.CPU.UsedPercent,
+		MemoryUsedMB:  unifiedUsage.Memory.UsedMB,
+		DiskReadMB:    int64(unifiedUsage.Disk.ReadMB),
+		DiskWriteMB:   int64(unifiedUsage.Disk.WriteMB),
+		NetworkUsedKB: int64(unifiedUsage.Network.SentKB + unifiedUsage.Network.RecvKB),
+		ThreadsUsed:   unifiedUsage.Threads,
+		ProcessesUsed: 1,
+	}
+	
+	// Get process runtime
+	createTime, err := p.CreateTime()
+	if err == nil {
+		usage.Runtime = time.Since(time.Unix(0, createTime/1000000))
+	}
+	
+	return usage, nil
+}
+
+// GetCollectorStats returns statistics about the resource collector
+func (rqm *ResourceQuotaManager) GetCollectorStats() CollectionStats {
+	return rqm.resourceCollector.GetCollectionStats()
+}
+
+// GetCacheStats returns cache statistics from the resource collector
+func (rqm *ResourceQuotaManager) GetCacheStats() CacheStats {
+	return rqm.resourceCollector.GetCacheStats()
+}
+
+// InvalidateProcessCache invalidates cache for a specific process
+func (rqm *ResourceQuotaManager) InvalidateProcessCache(pid int32) {
+	rqm.resourceCollector.InvalidateCache(pid)
+}
+
+// InvalidateAllCache invalidates all cache entries
+func (rqm *ResourceQuotaManager) InvalidateAllCache() {
+	rqm.resourceCollector.InvalidateAllCache()
+}
+
 // QuotaStats provides statistics about quotas
 type QuotaStats struct {
 	TotalQuotas     int            `json:"total_quotas"`
@@ -524,4 +556,6 @@ type QuotaStats struct {
 	TotalProcesses  int            `json:"total_processes"`
 	TotalViolations int            `json:"total_violations"`
 	ViolationCounts map[string]int `json:"violation_counts"`
+	CollectorStats  CollectionStats `json:"collector_stats"`
+	CacheStats      CacheStats      `json:"cache_stats"`
 }

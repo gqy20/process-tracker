@@ -999,6 +999,67 @@ func (a *App) RemoveCustomGroup(name string) error {
 	return a.SimplifiedProcessManager.RemoveCustomGroup(name)
 }
 
+// getUnifiedResourceUsage gets unified resource usage for a process (used by ResourceMonitor)
+// This is a temporary helper method until architecture is fully refactored
+func (a *App) getUnifiedResourceUsage(pid int32) (*UnifiedResourceUsage, error) {
+	if a.UnifiedMonitor == nil {
+		return nil, fmt.Errorf("unified monitor is not available")
+	}
+	
+	// Access the resource collector through reflection or public interface
+	// For now, we'll create a simple implementation
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create basic resource usage
+	usage := &UnifiedResourceUsage{
+		CPU: CPUUsage{
+			UsedPercent: 0,
+		},
+		Memory: MemoryUsage{
+			UsedMB: 0,
+		},
+		Disk: DiskUsage{
+			ReadMB:  0,
+			WriteMB: 0,
+		},
+		Network: NetworkUsage{
+			SentKB: 0,
+			RecvKB: 0,
+		},
+		Threads: 0,
+		Performance: PerformanceMetrics{
+			Score: 100.0,
+		},
+		Timestamp: time.Now(),
+	}
+	
+	// Get CPU usage
+	if cpuPercent, err := p.CPUPercent(); err == nil {
+		usage.CPU.UsedPercent = cpuPercent
+	}
+	
+	// Get memory usage
+	if memInfo, err := p.MemoryInfo(); err == nil {
+		usage.Memory.UsedMB = int64(memInfo.RSS / 1024 / 1024)
+	}
+	
+	// Get thread count
+	if threads, err := p.NumThreads(); err == nil {
+		usage.Threads = threads
+	}
+	
+	// Get I/O counters
+	if ioCounters, err := p.IOCounters(); err == nil {
+		usage.Disk.ReadMB = int64(ioCounters.ReadBytes / 1024 / 1024)
+		usage.Disk.WriteMB = int64(ioCounters.WriteBytes / 1024 / 1024)
+	}
+	
+	return usage, nil
+}
+
 // GetDiscoveryEvents returns the discovery event channel
 func (a *App) GetDiscoveryEvents() <-chan SimplifiedProcessEvent {
 	if a.SimplifiedProcessManager == nil {

@@ -11,17 +11,18 @@ import (
 
 // UnifiedMonitor 统一监控器
 type UnifiedMonitor struct {
-	app            *App
-	config         MonitoringConfig
-	processes      map[int32]*MonitoredProcess
-	resourceCache  map[int32]*ResourceUsage
-	healthCache    map[int32]*HealthStatus
-	performanceDB  map[int32][]PerformanceRecord
-	eventHandlers  []EventHandler
-	metrics        MetricsCollector
-	mutex          sync.RWMutex
-	ctx            context.Context
-	cancel         context.CancelFunc
+	app                 *App
+	config              MonitoringConfig
+	processes           map[int32]*MonitoredProcess
+	resourceCache       map[int32]*ResourceUsage
+	healthCache         map[int32]*HealthStatus
+	performanceDB       map[int32][]PerformanceRecord
+	eventHandlers       []EventHandler
+	metrics             MetricsCollector
+	resourceCollector   UnifiedResourceCollector
+	mutex               sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 
@@ -57,16 +58,32 @@ type ProcessMonitorConfig struct {
 func NewUnifiedMonitor(config MonitoringConfig, app *App) *UnifiedMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// 创建统一资源收集器配置
+	collectorConfig := ResourceCollectionConfig{
+		EnableCPUMonitoring:    true,
+		EnableMemoryMonitoring:  true,
+		EnableIOMonitoring:      config.EnableDetailedIO,
+		EnableNetworkMonitoring: false, // 默认不启用网络监控
+		EnableThreadMonitoring:  true,
+		EnableDetailedIO:        config.EnableDetailedIO,
+		CollectionInterval:      config.CheckInterval,
+		CacheTTL:               config.CheckInterval * 2,
+		MaxCacheSize:           1000,
+		EnableHistory:          false, // 统一监控器不需要历史记录
+		HistoryRetention:       time.Hour,
+	}
+	
 	return &UnifiedMonitor{
-		app:            app,
-		config:         config,
-		processes:      make(map[int32]*MonitoredProcess),
-		resourceCache:  make(map[int32]*ResourceUsage),
-		healthCache:    make(map[int32]*HealthStatus),
-		performanceDB:  make(map[int32][]PerformanceRecord),
-		eventHandlers:  make([]EventHandler, 0),
-		ctx:            ctx,
-		cancel:         cancel,
+		app:               app,
+		config:            config,
+		processes:         make(map[int32]*MonitoredProcess),
+		resourceCache:     make(map[int32]*ResourceUsage),
+		healthCache:       make(map[int32]*HealthStatus),
+		performanceDB:     make(map[int32][]PerformanceRecord),
+		eventHandlers:     make([]EventHandler, 0),
+		resourceCollector: NewUnifiedResourceCollector(collectorConfig),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 }
 
@@ -226,83 +243,52 @@ func (um *UnifiedMonitor) updateMonitoredProcess(monitored *MonitoredProcess, p 
 	}
 }
 
-// collectResourceUsage 收集资源使用情况
+// collectResourceUsage 收集资源使用情况（使用统一资源收集器）
 func (um *UnifiedMonitor) collectResourceUsage(p *process.Process) *ResourceUsage {
-	usage := &ResourceUsage{
-		LastAnomaly: time.Time{},
-	}
-	
-	// CPU使用率
-	if cpuPercent, err := p.CPUPercent(); err == nil {
-		usage.CPUUsed = cpuPercent
-	}
-	
-	// 内存使用
-	if memInfo, err := p.MemoryInfo(); err == nil {
-		usage.MemoryUsedMB = int64(memInfo.RSS / 1024 / 1024)
-	}
-	
-	// I/O统计
-	if um.config.EnableDetailedIO {
-		if ioCounters, err := p.IOCounters(); err == nil {
-			usage.DiskReadMB = int64(ioCounters.ReadBytes / 1024 / 1024)
-			usage.DiskWriteMB = int64(ioCounters.WriteBytes / 1024 / 1024)
+	// 使用统一资源收集器收集信息，它内置了回退机制
+	unifiedUsage, err := um.resourceCollector.CollectProcessResources(p.Pid)
+	if err != nil {
+		// 记录错误但返回基本的ResourceUsage
+		log.Printf("⚠️  统一资源收集器失败 PID %d: %v", p.Pid, err)
+		return &ResourceUsage{
+			CPUUsed:        0,
+			MemoryUsedMB:   0,
+			DiskReadMB:     0,
+			DiskWriteMB:    0,
+			PerformanceScore: 0,
 		}
 	}
 	
-	// 计算性能分数
-	usage.calculatePerformanceScore()
+	// 转换UnifiedResourceUsage为ResourceUsage以保持兼容性
+	usage := &ResourceUsage{
+		CPUUsed:        unifiedUsage.CPU.UsedPercent,
+		CPUExpected:    unifiedUsage.CPU.ExpectedPercent,
+		MemoryUsedMB:   unifiedUsage.Memory.UsedMB,
+		MemoryExpected: unifiedUsage.Memory.ExpectedMB,
+		DiskReadMB:     unifiedUsage.Disk.ReadMB,
+		DiskWriteMB:    unifiedUsage.Disk.WriteMB,
+		LastAnomaly:    unifiedUsage.Performance.LastAnomaly,
+		PerformanceScore: unifiedUsage.Performance.Score,
+	}
 	
-	// 检查异常
+	// 添加异常信息
+	for _, anomaly := range unifiedUsage.Anomalies {
+		if usage.AnomalyType == nil {
+			usage.AnomalyType = []string{}
+		}
+		usage.AnomalyType = append(usage.AnomalyType, anomaly.Type)
+		if usage.LastAnomaly.IsZero() || anomaly.Timestamp.After(usage.LastAnomaly) {
+			usage.LastAnomaly = anomaly.Timestamp
+		}
+	}
+	
+	// 检查异常（保留原有逻辑）
 	um.detectResourceAnomalies(usage)
 	
 	return usage
 }
 
-// calculatePerformanceScore 计算性能分数（移动到ResourceUsage的方法）
-func (ru *ResourceUsage) calculatePerformanceScore() {
-	score := 100.0
-	
-	// CPU效率评分
-	if ru.CPUExpected > 0 {
-		ratio := ru.CPUUsed / ru.CPUExpected
-		switch {
-		case ratio > 2.0:
-			score -= 30
-		case ratio > 1.5:
-			score -= 15
-		case ratio > 1.0:
-			score -= 5
-		}
-	}
-	
-	// 内存效率评分
-	if ru.MemoryExpected > 0 {
-		ratio := float64(ru.MemoryUsedMB) / float64(ru.MemoryExpected)
-		switch {
-		case ratio > 3.0:
-			score -= 30
-		case ratio > 2.0:
-			score -= 15
-		case ratio > 1.5:
-			score -= 5
-		}
-	}
-	
-	// 异常惩罚
-	if len(ru.AnomalyType) > 0 {
-		score -= float64(len(ru.AnomalyType)) * 10
-	}
-	
-	// 确保分数在合理范围内
-	if score < 0 {
-		score = 0
-	} else if score > 100 {
-		score = 100
-	}
-	
-	ru.PerformanceScore = score
-}
+
 
 // detectResourceAnomalies 检测资源异常
 func (um *UnifiedMonitor) detectResourceAnomalies(usage *ResourceUsage) {

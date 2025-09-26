@@ -13,12 +13,13 @@ import (
 
 // SimplifiedProcessManager 简化的进程管理器
 type SimplifiedProcessManager struct {
-	app            *App
-	config         ProcessManagerConfig
-	monitor        *UnifiedMonitor
-	mutex          sync.RWMutex
-	ctx            context.Context
-	cancel         context.CancelFunc
+	app                 *App
+	config              ProcessManagerConfig
+	monitor             *UnifiedMonitor
+	resourceCollector   UnifiedResourceCollector
+	mutex               sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 
@@ -62,11 +63,27 @@ type SimplifiedProcessEvent struct {
 func NewSimplifiedProcessManager(config ProcessManagerConfig, app *App) *SimplifiedProcessManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// 创建统一资源收集器配置
+	collectorConfig := ResourceCollectionConfig{
+		EnableCPUMonitoring:    true,
+		EnableMemoryMonitoring:  true,
+		EnableIOMonitoring:      true,
+		EnableNetworkMonitoring: false,
+		EnableThreadMonitoring:  true,
+		EnableDetailedIO:        false,
+		CollectionInterval:      config.DiscoveryInterval,
+		CacheTTL:               config.DiscoveryInterval * 2,
+		MaxCacheSize:           1000,
+		EnableHistory:          false,
+		HistoryRetention:       time.Hour,
+	}
+	
 	spm := &SimplifiedProcessManager{
-		app:    app,
-		config: config,
-		ctx:    ctx,
-		cancel: cancel,
+		app:               app,
+		config:            config,
+		resourceCollector: NewUnifiedResourceCollector(collectorConfig),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 	
 	// 初始化统一监控器
@@ -107,6 +124,9 @@ func (spm *SimplifiedProcessManager) Stop() {
 	if spm.monitor != nil {
 		spm.monitor.Stop()
 	}
+	
+	// 清理资源收集器
+	spm.resourceCollector.InvalidateAllCache()
 	
 	log.Println("🛑 简化进程管理器已停止")
 }
@@ -215,31 +235,45 @@ func (spm *SimplifiedProcessManager) getProcessInfo(p *process.Process) *Extende
 	return info
 }
 
-// collectResourceUsage 收集资源使用情况（简化版本）
+// collectResourceUsage 收集资源使用情况（使用统一收集器）
 func (spm *SimplifiedProcessManager) collectResourceUsage(p *process.Process) *ResourceUsage {
-	usage := &ResourceUsage{}
-	
-	// CPU使用率
-	if cpuPercent, err := p.CPUPercent(); err == nil {
-		usage.CPUUsed = cpuPercent
+	// 使用统一资源收集器，它内置了回退机制
+	unifiedUsage, err := spm.resourceCollector.CollectProcessResources(p.Pid)
+	if err != nil {
+		// 记录错误但返回基本的ResourceUsage
+		log.Printf("⚠️  统一资源收集器失败 PID %d: %v", p.Pid, err)
+		return &ResourceUsage{
+			CPUUsed:        0,
+			MemoryUsedMB:   0,
+			DiskReadMB:     0,
+			DiskWriteMB:    0,
+			PerformanceScore: 0,
+		}
 	}
 	
-	// 内存使用
-	if memInfo, err := p.MemoryInfo(); err == nil {
-		usage.MemoryUsedMB = int64(memInfo.RSS / 1024 / 1024)
+	// 转换为ResourceUsage以保持兼容性
+	usage := &ResourceUsage{
+		CPUUsed:        unifiedUsage.CPU.UsedPercent,
+		MemoryUsedMB:   int64(unifiedUsage.Memory.UsedMB),
+		DiskReadMB:     int64(unifiedUsage.Disk.ReadMB),
+		DiskWriteMB:    int64(unifiedUsage.Disk.WriteMB),
+		PerformanceScore: unifiedUsage.Performance.Score,
 	}
 	
-	// I/O统计
-	if ioCounters, err := p.IOCounters(); err == nil {
-		usage.DiskReadMB = int64(ioCounters.ReadBytes / 1024 / 1024)
-		usage.DiskWriteMB = int64(ioCounters.WriteBytes / 1024 / 1024)
+	// 添加异常信息
+	for _, anomaly := range unifiedUsage.Anomalies {
+		if usage.AnomalyType == nil {
+			usage.AnomalyType = []string{}
+		}
+		usage.AnomalyType = append(usage.AnomalyType, anomaly.Type)
+		if usage.LastAnomaly.IsZero() || anomaly.Timestamp.After(usage.LastAnomaly) {
+			usage.LastAnomaly = anomaly.Timestamp
+		}
 	}
-	
-	// 计算性能分数
-	usage.calculatePerformanceScore()
 	
 	return usage
 }
+
 
 // matchProcessGroup 匹配进程组
 func (spm *SimplifiedProcessManager) matchProcessGroup(info *ExtendedProcessInfo) string {

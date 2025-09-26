@@ -1280,3 +1280,196 @@ type ProcessManagerConfig struct {
 	EnableQuota          bool          `yaml:"enable_quota"`
 }
 
+// 统一资源收集器相关类型定义
+
+// ResourceCollectionConfig 配置统一资源收集器
+type ResourceCollectionConfig struct {
+	EnableCPUMonitoring    bool          `yaml:"enable_cpu_monitoring"`
+	EnableMemoryMonitoring  bool          `yaml:"enable_memory_monitoring"`
+	EnableIOMonitoring      bool          `yaml:"enable_io_monitoring"`
+	EnableNetworkMonitoring bool          `yaml:"enable_network_monitoring"`
+	EnableThreadMonitoring  bool          `yaml:"enable_thread_monitoring"`
+	EnableDetailedIO        bool          `yaml:"enable_detailed_io"`
+	CollectionInterval      time.Duration `yaml:"collection_interval"`
+	CacheTTL               time.Duration `yaml:"cache_ttl"`
+	MaxCacheSize           int           `yaml:"max_cache_size"`
+	EnableHistory          bool          `yaml:"enable_history"`
+	HistoryRetention       time.Duration `yaml:"history_retention"`
+}
+
+// UnifiedResourceUsage 统一资源使用情况
+type UnifiedResourceUsage struct {
+	PID        int32     `json:"pid"`
+	Timestamp  time.Time `json:"timestamp"`
+	CPU        CPUUsage  `json:"cpu"`
+	Memory     MemoryUsage `json:"memory"`
+	Disk       DiskUsage `json:"disk"`
+	Network    NetworkUsage `json:"network,omitempty"`
+	Threads    int32     `json:"threads,omitempty"`
+	Performance PerformanceMetrics `json:"performance"`
+	Anomalies   []AnomalyInfo `json:"anomalies"`
+}
+
+// CPUUsage CPU使用情况
+type CPUUsage struct {
+	UsedPercent     float64 `json:"used_percent"`
+	TimeUsed        uint64  `json:"time_used,omitempty"`
+	ExpectedPercent float64 `json:"expected_percent,omitempty"`
+}
+
+// MemoryUsage 内存使用情况
+type MemoryUsage struct {
+	UsedMB      int64   `json:"used_mb"`
+	UsedPercent float64 `json:"used_percent"`
+	TotalMB     int64   `json:"total_mb,omitempty"`
+	ExpectedMB  int64   `json:"expected_mb,omitempty"`
+	RSS         uint64  `json:"rss,omitempty"`
+	VMS         uint64  `json:"vms,omitempty"`
+}
+
+// DiskUsage 磁盘使用情况
+type DiskUsage struct {
+	ReadMB       int64 `json:"read_mb"`
+	WriteMB      int64 `json:"write_mb"`
+	ReadCount    int64 `json:"read_count,omitempty"`
+	WriteCount   int64 `json:"write_count,omitempty"`
+	ReadBytes    uint64 `json:"read_bytes,omitempty"`
+	WriteBytes   uint64 `json:"write_bytes,omitempty"`
+}
+
+// NetworkUsage 网络使用情况
+type NetworkUsage struct {
+	SentKB     int64 `json:"sent_kb"`
+	RecvKB     int64 `json:"recv_kb"`
+	SentBytes  uint64 `json:"sent_bytes,omitempty"`
+	RecvBytes  uint64 `json:"recv_bytes,omitempty"`
+	Connections int   `json:"connections,omitempty"`
+}
+
+// PerformanceMetrics 性能指标
+type PerformanceMetrics struct {
+	Score          float64   `json:"score"`
+	LastAnomaly    time.Time `json:"last_anomaly"`
+	HealthStatus   string    `json:"health_status"`
+	ResponseTime   float64   `json:"response_time,omitempty"`
+}
+
+// AnomalyInfo 异常信息
+type AnomalyInfo struct {
+	Type        string    `json:"type"`
+	Description string    `json:"description"`
+	Severity    string    `json:"severity"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// SystemResourceUsage 系统资源使用情况
+type SystemResourceUsage struct {
+	Timestamp    time.Time              `json:"timestamp"`
+	CPU          SystemCPUUsage         `json:"cpu"`
+	Memory       SystemMemoryUsage      `json:"memory"`
+	Disk         SystemDiskUsage         `json:"disk"`
+	Network      SystemNetworkUsage      `json:"network"`
+	Processes    int32                  `json:"processes"`
+	LoadAverage  float64                `json:"load_average"`
+	Uptime       time.Duration          `json:"uptime"`
+}
+
+// SystemCPUUsage 系统CPU使用情况
+type SystemCPUUsage struct {
+	SystemPercent float64 `json:"system_percent"`
+	UserPercent   float64 `json:"user_percent"`
+	IdlePercent   float64 `json:"idle_percent"`
+	LoadAvg1      float64 `json:"load_avg_1"`
+	LoadAvg5      float64 `json:"load_avg_5"`
+	LoadAvg15     float64 `json:"load_avg_15"`
+}
+
+// SystemMemoryUsage 系统内存使用情况
+type SystemMemoryUsage struct {
+	TotalMB     int64   `json:"total_mb"`
+	UsedMB      int64   `json:"used_mb"`
+	FreeMB      int64   `json:"free_mb"`
+	AvailableMB int64   `json:"available_mb"`
+	UsedPercent float64 `json:"used_percent"`
+	BuffersMB   int64   `json:"buffers_mb"`
+	CachedMB    int64   `json:"cached_mb"`
+}
+
+// SystemDiskUsage 系统磁盘使用情况
+type SystemDiskUsage struct {
+	TotalMB     int64   `json:"total_mb"`
+	UsedMB      int64   `json:"used_mb"`
+	FreeMB      int64   `json:"free_mb"`
+	UsedPercent float64 `json:"used_percent"`
+	ReadMB      int64   `json:"read_mb"`
+	WriteMB     int64   `json:"write_mb"`
+}
+
+// SystemNetworkUsage 系统网络使用情况
+type SystemNetworkUsage struct {
+	SentKB     int64 `json:"sent_kb"`
+	RecvKB     int64 `json:"recv_kb"`
+	PacketsIn  int64 `json:"packets_in"`
+	PacketsOut int64 `json:"packets_out"`
+	ErrorsIn   int64 `json:"errors_in"`
+	ErrorsOut  int64 `json:"errors_out"`
+}
+
+// CacheStats 缓存统计
+type CacheStats struct {
+	Size         int           `json:"size"`
+	MaxSize      int           `json:"max_size"`
+	HitRate      float64       `json:"hit_rate"`
+	Misses       int64         `json:"misses"`
+	Hits         int64         `json:"hits"`
+	Evictions    int64         `json:"evictions"`
+	AgeOldest    time.Duration `json:"age_oldest"`
+	AgeNewest    time.Duration `json:"age_newest"`
+}
+
+// CollectionStats 收集统计
+type CollectionStats struct {
+	TotalCollections      int64         `json:"total_collections"`
+	SuccessfulCollections int64        `json:"successful_collections"`
+	FailedCollections     int64         `json:"failed_collections"`
+	AvgCollectionTime     time.Duration `json:"avg_collection_time"`
+	LastCollection        time.Time     `json:"last_collection"`
+	Errors                []string      `json:"errors"`
+	Hits                  int64         `json:"hits"`
+	Misses                int64         `json:"misses"`
+	Evictions             int64         `json:"evictions"`
+}
+
+// AggregatedResourceStats 聚合资源统计
+type AggregatedResourceStats struct {
+	PID              int32        `json:"pid"`
+	Duration         time.Duration `json:"duration"`
+	CPUStats         ResourceStat  `json:"cpu_stats"`
+	MemoryStats      ResourceStat  `json:"memory_stats"`
+	DiskStats        ResourceStat  `json:"disk_stats"`
+	NetworkStats     ResourceStat  `json:"network_stats"`
+	SampleCount      int64         `json:"sample_count"`
+	StartTime        time.Time     `json:"start_time"`
+	EndTime          time.Time     `json:"end_time"`
+}
+
+// ResourceStat 资源统计
+type ResourceStat struct {
+	Average    float64 `json:"average"`
+	Min        float64 `json:"min"`
+	Max        float64 `json:"max"`
+	Percentile95 float64 `json:"percentile_95"`
+	StdDev     float64 `json:"std_dev"`
+	Trend      string  `json:"trend"` // "increasing", "decreasing", "stable"
+}
+
+// HistoryStats 历史统计
+type HistoryStats struct {
+	TotalRecords     int64         `json:"total_records"`
+	OldestRecord     time.Time     `json:"oldest_record"`
+	NewestRecord     time.Time     `json:"newest_record"`
+	RecordCountByPID map[int32]int `json:"record_count_by_pid"`
+	StorageSizeMB    float64       `json:"storage_size_mb"`
+	CompressionRatio float64       `json:"compression_ratio"`
+}
+

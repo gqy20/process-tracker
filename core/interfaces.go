@@ -208,6 +208,43 @@ type ConfigManager interface {
 	SaveConfig() error
 }
 
+// UnifiedResourceCollector 统一资源收集器接口
+type UnifiedResourceCollector interface {
+	// 基础资源收集
+	CollectProcessResources(pid int32) (*UnifiedResourceUsage, error)
+	CollectSystemResources() (*SystemResourceUsage, error)
+	
+	// 批量收集
+	CollectMultipleProcesses(pids []int32) (map[int32]*UnifiedResourceUsage, error)
+	
+	// 缓存管理
+	InvalidateCache(pid int32)
+	InvalidateAllCache()
+	GetCacheStats() CacheStats
+	
+	// 配置管理
+	UpdateConfig(config ResourceCollectionConfig) error
+	GetConfig() ResourceCollectionConfig
+	
+	// 性能监控
+	GetCollectionStats() CollectionStats
+}
+
+// ResourceUsageHistory 资源使用历史接口
+type ResourceUsageHistory interface {
+	// 历史记录管理
+	AddRecord(pid int32, usage *UnifiedResourceUsage) error
+	GetHistory(pid int32, duration time.Duration) ([]*UnifiedResourceUsage, error)
+	GetLatest(pid int32) (*UnifiedResourceUsage, error)
+	
+	// 聚合统计
+	GetAggregatedStats(pid int32, duration time.Duration) (*AggregatedResourceStats, error)
+	
+	// 清理管理
+	CleanupOldRecords(olderThan time.Duration) error
+	GetHistoryStats() HistoryStats
+}
+
 // MetricsCollector 指标收集器接口
 type MetricsCollector interface {
 	// 指标记录
