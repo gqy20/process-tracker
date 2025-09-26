@@ -6,7 +6,7 @@
 set -e
 
 PROJECT_NAME="process-tracker"
-VERSION="0.3.4"
+VERSION="0.3.7"
 RELEASE_DIR="releases/v${VERSION}"
 
 echo "🔨 Building process-tracker for multiple platforms..."

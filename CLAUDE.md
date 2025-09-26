@@ -14,7 +14,7 @@ Process Tracker is a Go-based system monitoring tool that tracks process usage s
 go build -o process-tracker main.go
 
 # Build with version (for releases)
-go build -ldflags="-X main.Version=0.3.0" -o process-tracker main.go
+go build -ldflags="-X main.Version=0.3.7" -o process-tracker main.go
 
 # Cross-platform build script
 ./build.sh

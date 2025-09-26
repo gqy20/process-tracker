@@ -52,9 +52,12 @@ cd process-tracker
 
 ## ⚙️ 配置
 
-配置文件位于 `~/.process-tracker.yaml`，首次运行会自动创建默认配置：
+配置文件位于 `~/.process-tracker.yaml`，首次运行会自动创建默认配置。
+
+### 基础配置
 
 ```yaml
+# 统计和显示配置
 statistics_granularity: detailed  # simple|detailed|full
 show_commands: true               # 显示完整命令
 show_working_dirs: true           # 显示工作目录
@@ -69,6 +72,96 @@ storage:
   compress_after_days: 3         # 压缩天数
   cleanup_after_days: 30         # 清理天数
   auto_cleanup: true              # 自动清理
+```
+
+### 进程控制配置
+
+```yaml
+# 进程控制选项
+process_control:
+  enabled: true|false             # 启用进程控制
+  enable_auto_restart: true|false # 启用自动重启
+  max_restarts: 3                 # 最大重启次数
+  restart_delay: 5s               # 重启延迟
+  check_interval: 10s             # 检查间隔
+```
+
+### 资源配额配置
+
+```yaml
+# 资源配额管理
+resource_quota:
+  enabled: true|false             # 启用资源配额
+  check_interval: 30s             # 检查间隔
+  default_action: warn|throttle|stop|restart|notify  # 默认动作
+  max_violations: 5               # 最大违规次数
+  violation_window: 5m            # 违规窗口期
+```
+
+### 进程发现配置
+
+```yaml
+# 进程自动发现
+process_discovery:
+  enabled: true|false             # 启用进程发现
+  discovery_interval: 30s         # 发现间隔
+  auto_manage: true|false        # 自动管理
+  bio_tools_only: true|false     # 仅生物信息学工具
+  process_patterns: [pattern1, pattern2]    # 进程模式
+  exclude_patterns: [pattern1, pattern2]   # 排除模式
+  max_processes: 100              # 最大进程数
+  cpu_threshold: 80.0             # CPU阈值
+  memory_threshold_mb: 1024      # 内存阈值(MB)
+```
+
+### 生物信息学工具配置
+
+```yaml
+# 生物信息学工具管理
+bio_tools:
+  enabled: true                   # 启用生物信息学工具
+  auto_discovery: true            # 自动发现
+  custom_tools:                   # 自定义工具列表
+    - name: "tool-name"
+      executable: "/path/to/tool"
+      category: "alignment|assembly|analysis|visualization"
+      description: "Tool description"
+```
+
+### 监控配置
+
+```yaml
+# 统一监控配置
+monitoring:
+  enabled: true                   # 启用监控
+  interval: 1s                    # 监控间隔
+  health_check_interval: 30s      # 健康检查间隔
+  max_monitored_processes: 100    # 最大监控进程数
+  performance_history_size: 1000  # 性能历史大小
+  enable_detailed_io: false       # 启用详细IO监控
+  auto_restart_attempt: true       # 自动重启尝试
+  max_restart_attempts: 3         # 最大重启次数
+```
+
+### 健康检查配置
+
+```yaml
+# 健康检查规则
+health_check_rules:
+  - name: "cpu_rule"
+    description: "CPU使用率检查"
+    metric: "cpu"
+    operator: ">"
+    threshold: 80.0
+    severity: "warning"
+    enabled: true
+  - name: "memory_rule"
+    description: "内存使用检查"
+    metric: "memory"
+    operator: ">"
+    threshold: 1024.0
+    severity: "error"
+    enabled: true
 ```
 
 ## 📈 监控指标
@@ -107,7 +200,7 @@ storage:
 ./build.sh
 
 # 手动构建当前平台
-go build -ldflags="-X main.Version=0.3.0" -o process-tracker .
+go build -ldflags="-X main.Version=0.3.7" -o process-tracker .
 ```
 
 ### 项目结构
@@ -118,7 +211,14 @@ process-tracker/
 ├── core/                 # 核心功能模块
 │   ├── app.go           # 应用核心逻辑
 │   ├── types.go         # 数据类型定义
+│   ├── unified_monitor.go  # 统一监控器
 │   └── storage_manager.go # 存储管理
+├── tests/                # 测试文件
+│   ├── unit/            # 单元测试
+│   │   ├── app_test.go
+│   │   ├── unified_monitor_test.go
+│   │   └── bio_tools_manager_test.go
+│   └── README.md        # 测试文档
 ├── build.sh             # 构建脚本
 ├── CLAUDE.md           # 开发文档
 └── README.md           # 项目说明
