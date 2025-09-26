@@ -51,6 +51,9 @@ type App struct {
 	
 	// Process control management
 	ProcessController *ProcessController
+	
+	// Resource quota management
+	QuotaManager *ResourceQuotaManager
 }
 
 // NewApp creates a new App instance
@@ -82,6 +85,11 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.ProcessController = NewProcessController(controllerConfig)
 	}
 	
+	// Initialize resource quota manager if enabled
+	if config.ResourceQuota.Enabled {
+		app.QuotaManager = NewResourceQuotaManager(config.ResourceQuota, app)
+	}
+	
 	return app
 }
 
@@ -96,6 +104,11 @@ func (a *App) Initialize() error {
 	// Start process controller if enabled
 	if a.ProcessController != nil {
 		a.ProcessController.Start()
+	}
+	
+	// Start resource quota manager if enabled
+	if a.QuotaManager != nil {
+		a.QuotaManager.Start()
 	}
 	
 	return nil
@@ -736,4 +749,71 @@ func (a *App) StopProcessController() {
 	if a.ProcessController != nil {
 		a.ProcessController.Stop()
 	}
+}
+
+// StopQuotaManager stops the resource quota manager
+func (a *App) StopQuotaManager() {
+	if a.QuotaManager != nil {
+		a.QuotaManager.Stop()
+	}
+}
+
+// AddProcessToQuota adds a process to a resource quota
+func (a *App) AddProcessToQuota(quotaName string, pid int32) error {
+	if a.QuotaManager == nil {
+		return fmt.Errorf("resource quota manager is not enabled")
+	}
+	
+	return a.QuotaManager.AddProcessToQuota(quotaName, pid)
+}
+
+// RemoveProcessFromQuota removes a process from a resource quota
+func (a *App) RemoveProcessFromQuota(quotaName string, pid int32) error {
+	if a.QuotaManager == nil {
+		return fmt.Errorf("resource quota manager is not enabled")
+	}
+	
+	return a.QuotaManager.RemoveProcessFromQuota(quotaName, pid)
+}
+
+// GetQuotaByName returns a quota by name
+func (a *App) GetQuotaByName(name string) (*ResourceQuota, error) {
+	if a.QuotaManager == nil {
+		return nil, fmt.Errorf("resource quota manager is not enabled")
+	}
+	
+	return a.QuotaManager.GetQuotaByName(name)
+}
+
+// GetAllQuotas returns all quotas
+func (a *App) GetAllQuotas() []*ResourceQuota {
+	if a.QuotaManager == nil {
+		return []*ResourceQuota{}
+	}
+	
+	return a.QuotaManager.GetAllQuotas()
+}
+
+// GetQuotaEvents returns the quota event channel
+func (a *App) GetQuotaEvents() <-chan ResourceQuotaEvent {
+	if a.QuotaManager == nil {
+		return make(chan ResourceQuotaEvent)
+	}
+	
+	return a.QuotaManager.Events()
+}
+
+// GetQuotaStats returns statistics about quotas
+func (a *App) GetQuotaStats() QuotaStats {
+	if a.QuotaManager == nil {
+		return QuotaStats{
+			TotalQuotas:     0,
+			ActiveQuotas:    0,
+			TotalProcesses:  0,
+			TotalViolations: 0,
+			ViolationCounts: make(map[string]int),
+		}
+	}
+	
+	return a.QuotaManager.GetQuotaStats()
 }

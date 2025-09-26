@@ -21,6 +21,9 @@ type Config struct {
 	
 	// Process control configuration
 	ProcessControl       ProcessControlConfig `yaml:"process_control"`
+	
+	// Resource quota configuration
+	ResourceQuota        ResourceQuotaConfig `yaml:"resource_quota"`
 }
 
 // ProcessControlConfig configures process management features
@@ -40,6 +43,45 @@ type ManagedProcessConfig struct {
 	WorkingDir  string   `yaml:"working_dir"`
 	MaxRestarts int      `yaml:"max_restarts"`
 }
+
+// ResourceQuotaConfig configures resource quota management
+type ResourceQuotaConfig struct {
+	Enabled           bool             `yaml:"enabled"`
+	CheckInterval     time.Duration    `yaml:"check_interval"`
+	DefaultAction     QuotaAction      `yaml:"default_action"`
+	MaxViolations     int              `yaml:"max_violations"`
+	ViolationWindow  time.Duration    `yaml:"violation_window"`
+	Quotas           []ResourceQuota   `yaml:"quotas"`
+}
+
+// ResourceQuota defines resource limits for a process or group
+type ResourceQuota struct {
+	Name           string        `yaml:"name"`
+	CPULimit       float64       `yaml:"cpu_limit"`       // CPU percentage limit (0-100)
+	MemoryLimitMB  int64         `yaml:"memory_limit_mb"`  // Memory limit in MB
+	DiskReadLimitMB int64        `yaml:"disk_read_limit_mb"` // Disk read limit in MB/s
+	DiskWriteLimitMB int64       `yaml:"disk_write_limit_mb"` // Disk write limit in MB/s
+	NetworkLimitKB int64         `yaml:"network_limit_kb"` // Network limit in KB/s
+	ThreadLimit    int32         `yaml:"thread_limit"`    // Maximum number of threads
+	ProcessLimit   int32         `yaml:"process_limit"`   // Maximum number of processes
+	TimeLimit      time.Duration `yaml:"time_limit"`      // Maximum runtime duration
+	Action         QuotaAction   `yaml:"action"`         // Action when quota exceeded
+	Processes      []int32       `yaml:"processes"`      // Associated process PIDs
+	LastCheck      time.Time     `yaml:"last_check"`
+	Violations     int           `yaml:"violations"`
+	Active         bool          `yaml:"active"`
+}
+
+// QuotaAction defines what action to take when a quota is exceeded
+type QuotaAction string
+
+const (
+	ActionWarn      QuotaAction = "warn"
+	ActionThrottle  QuotaAction = "throttle"
+	ActionStop      QuotaAction = "stop"
+	ActionRestart   QuotaAction = "restart"
+	ActionNotify    QuotaAction = "notify"
+)
 
 // StorageConfig represents storage management configuration
 type StorageConfig struct {
@@ -73,6 +115,14 @@ func GetDefaultConfig() Config {
 			RestartDelay:      5 * time.Second,
 			CheckInterval:     10 * time.Second,
 			ManagedProcesses:  []ManagedProcessConfig{},
+		},
+		ResourceQuota: ResourceQuotaConfig{
+			Enabled:          true,
+			CheckInterval:    30 * time.Second,
+			DefaultAction:    ActionWarn,
+			MaxViolations:    5,
+			ViolationWindow: 5 * time.Minute,
+			Quotas:          []ResourceQuota{},
 		},
 	}
 }

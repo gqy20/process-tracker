@@ -18,7 +18,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.1"
+var Version = "0.3.2"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -189,6 +189,22 @@ func main() {
 		app.restartProcess(os.Args[2])
 	case "list-processes":
 		app.listManagedProcesses()
+	case "add-quota":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 请指定配额名称和进程PID")
+			fmt.Println("用法: process-tracker add-quota <配额名称> <PID>")
+			return
+		}
+		app.addProcessToQuota(os.Args[2], os.Args[3])
+	case "remove-quota":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 请指定配额名称和进程PID")
+			fmt.Println("用法: process-tracker remove-quota <配额名称> <PID>")
+			return
+		}
+		app.removeProcessFromQuota(os.Args[2], os.Args[3])
+	case "list-quotas":
+		app.listQuotas()
 	case "help":
 		app.printUsage()
 	default:
@@ -197,7 +213,7 @@ func main() {
 }
 
 func (a *App) printUsage() {
-	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.1")
+	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.2")
 	fmt.Println()
 	fmt.Println("使用方法:")
 	fmt.Println("  process-tracker <命令>")
@@ -217,6 +233,11 @@ func (a *App) printUsage() {
 	fmt.Println("  restart-process    重启指定进程")
 	fmt.Println("  list-processes     列出所有托管进程")
 	fmt.Println()
+	fmt.Println("资源配额命令:")
+	fmt.Println("  add-quota          将进程添加到配额管理")
+	fmt.Println("  remove-quota       从配额管理中移除进程")
+	fmt.Println("  list-quotas        列出所有资源配额")
+	fmt.Println()
 	fmt.Println("其他命令:")
 	fmt.Println("  version            显示版本信息")
 	fmt.Println("  help               显示此帮助信息")
@@ -233,6 +254,18 @@ func (a *App) printUsage() {
 	fmt.Println("      max_restarts: 3")
 	fmt.Println("      restart_delay: 5s")
 	fmt.Println("      check_interval: 10s")
+	fmt.Println("    resource_quota:")
+	fmt.Println("      enabled: true|false")
+	fmt.Println("      check_interval: 30s")
+	fmt.Println("      default_action: warn|throttle|stop|restart|notify")
+	fmt.Println("      max_violations: 5")
+	fmt.Println("      violation_window: 5m")
+	fmt.Println()
+	fmt.Println("v0.3.2 新特性:")
+	fmt.Println("  📊 资源配额管理 - CPU、内存、线程等资源限制")
+	fmt.Println("  🚨 配额违规检测 - 自动监控和告警机制")
+	fmt.Println("  🎯 智能动作 - 违规时自动执行警告、限制或停止")
+	fmt.Println("  📈 实时统计 - 配额使用情况和违规统计")
 	fmt.Println()
 	fmt.Println("v0.3.1 新特性:")
 	fmt.Println("  🎛️  进程控制 - 启动、停止、重启进程")
@@ -925,4 +958,123 @@ func (a *App) listManagedProcesses() {
 		fmt.Printf("   失败: %d\n", stats.Failed)
 		fmt.Printf("   重启中: %d\n", stats.Restarting)
 	}
+}
+
+// addProcessToQuota adds a process to a resource quota
+func (a *App) addProcessToQuota(quotaName, processIdentifier string) {
+	if !a.Config.ResourceQuota.Enabled {
+		fmt.Println("❌ 资源配额功能未启用，请检查配置文件")
+		return
+	}
+	
+	// Try to find process by name first
+	var pid int32
+	proc, err := a.GetProcessByName(processIdentifier)
+	if err == nil {
+		pid = proc.PID
+	} else {
+		// If not found by name, try to parse as PID
+		parsedPid, err := strconv.ParseInt(processIdentifier, 10, 32)
+		if err != nil {
+			fmt.Printf("❌ 未找到进程: %s\n", processIdentifier)
+			return
+		}
+		pid = int32(parsedPid)
+	}
+	
+	// Add process to quota
+	if err := a.AddProcessToQuota(quotaName, pid); err != nil {
+		fmt.Printf("❌ 添加进程到配额失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 进程 %s (PID: %d) 已添加到配额 %s\n", processIdentifier, pid, quotaName)
+}
+
+// removeProcessFromQuota removes a process from a resource quota
+func (a *App) removeProcessFromQuota(quotaName, processIdentifier string) {
+	if !a.Config.ResourceQuota.Enabled {
+		fmt.Println("❌ 资源配额功能未启用，请检查配置文件")
+		return
+	}
+	
+	// Try to find process by name first
+	var pid int32
+	proc, err := a.GetProcessByName(processIdentifier)
+	if err == nil {
+		pid = proc.PID
+	} else {
+		// If not found by name, try to parse as PID
+		parsedPid, err := strconv.ParseInt(processIdentifier, 10, 32)
+		if err != nil {
+			fmt.Printf("❌ 未找到进程: %s\n", processIdentifier)
+			return
+		}
+		pid = int32(parsedPid)
+	}
+	
+	// Remove process from quota
+	if err := a.RemoveProcessFromQuota(quotaName, pid); err != nil {
+		fmt.Printf("❌ 从配额移除进程失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 进程 %s (PID: %d) 已从配额 %s 移除\n", processIdentifier, pid, quotaName)
+}
+
+// listQuotas lists all resource quotas and their processes
+func (a *App) listQuotas() {
+	if !a.Config.ResourceQuota.Enabled {
+		fmt.Println("❌ 资源配额功能未启用，请检查配置文件")
+		return
+	}
+	
+	quotas := a.GetAllQuotas()
+	if len(quotas) == 0 {
+		fmt.Println("📭 当前没有配置资源配额")
+		return
+	}
+	
+	fmt.Println("📋 资源配额列表")
+	fmt.Println("================================")
+	
+	for _, quota := range quotas {
+		fmt.Printf("配额名称: %s\n", quota.Name)
+		fmt.Printf("状态: %s\n", func() string {
+			if quota.Active {
+				return "🟢 活跃"
+			}
+			return "🔴 非活跃"
+		}())
+		fmt.Printf("CPU限制: %.1f%%\n", quota.CPULimit)
+		fmt.Printf("内存限制: %d MB\n", quota.MemoryLimitMB)
+		fmt.Printf("线程限制: %d\n", quota.ThreadLimit)
+		fmt.Printf("时间限制: %v\n", quota.TimeLimit)
+		fmt.Printf("违规次数: %d\n", quota.Violations)
+		fmt.Printf("操作: %s\n", quota.Action)
+		
+		if len(quota.Processes) > 0 {
+			fmt.Printf("关联进程 (%d):\n", len(quota.Processes))
+			for _, pid := range quota.Processes {
+				// Get process name
+				if p, err := process.NewProcess(pid); err == nil {
+					if name, err := p.Name(); err == nil {
+						fmt.Printf("  - %s (PID: %d)\n", name, pid)
+					} else {
+						fmt.Printf("  - PID: %d\n", pid)
+					}
+				} else {
+					fmt.Printf("  - PID: %d (进程不存在)\n", pid)
+				}
+			}
+		} else {
+			fmt.Println("关联进程: 无")
+		}
+		fmt.Println("================================")
+	}
+	
+	// Show quota statistics
+	stats := a.GetQuotaStats()
+	fmt.Printf("📊 配额统计: 总计 %d 个配额，%d 个活跃，%d 个进程，%d 次违规\n",
+		stats.TotalQuotas, stats.ActiveQuotas, stats.TotalProcesses, stats.TotalViolations)
 }

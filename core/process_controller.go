@@ -5,6 +5,7 @@ import (
     "fmt"
     "log"
     "os/exec"
+    "runtime"
     "sync"
     "syscall"
     "time"
@@ -97,9 +98,12 @@ func (pc *ProcessController) StartProcess(name string, command []string, working
         cmd.Dir = workingDir
     }
     
-    // Set up process attributes
-    cmd.SysProcAttr = &syscall.SysProcAttr{
-        Setsid: true, // Create new session
+    // Set up process attributes (Unix-like systems only)
+    // Note: Setsid is not available on Windows
+    if runtime.GOOS != "windows" {
+        cmd.SysProcAttr = &syscall.SysProcAttr{
+            Setsid: true, // Create new session
+        }
     }
     
     // Start the process
