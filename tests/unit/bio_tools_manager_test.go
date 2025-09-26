@@ -1,13 +1,14 @@
-package core
+package unit
 
 import (
+	"github.com/yourusername/process-tracker/core"
 	"testing"
 	"time"
 )
 
 func TestBioToolsManagerBasic(t *testing.T) {
 	// 创建简化的生物信息学工具管理器配置
-	config := &BioToolsConfig{
+	config := &core.BioToolsConfig{
 		Enabled:           true,
 		ToolPaths:         []string{},
 		DefaultTimeout:    300,
@@ -17,7 +18,7 @@ func TestBioToolsManagerBasic(t *testing.T) {
 	}
 
 	// 创建简化的进程管理器配置
-	processConfig := ProcessManagerConfig{
+	processConfig := core.ProcessManagerConfig{
 		Enabled:           true,
 		DiscoveryInterval: 5 * time.Second,
 		AutoDiscovery:     true,
@@ -28,10 +29,10 @@ func TestBioToolsManagerBasic(t *testing.T) {
 	}
 
 	// 创建进程管理器
-	processManager := NewSimplifiedProcessManager(processConfig, nil)
+	processManager := core.NewSimplifiedProcessManager(processConfig, nil)
 
 	// 创建生物信息学工具管理器
-	bioToolsManager := NewBioToolsManager(config, processManager)
+	bioToolsManager := core.NewBioToolsManager(config, processManager)
 
 	// 测试1: 获取可用工具
 	t.Run("GetAvailableTools", func(t *testing.T) {
@@ -150,12 +151,12 @@ func TestBioToolsManagerBasic(t *testing.T) {
 
 func TestBioToolsManagerWithApp(t *testing.T) {
 	// 测试简化的生物信息学工具管理器与App的集成
-	config := GetDefaultConfig()
+	config := core.GetDefaultConfig()
 	
 	// 确保生物信息学工具功能启用
 	config.BioTools.Enabled = true
 	
-	app := NewApp("test_data.json", 1*time.Second, config)
+	app := core.NewApp("test_data.json", 1*time.Second, config)
 	
 	// 测试生物信息学工具管理器是否正确初始化
 	if app.BioToolsManager == nil {
@@ -175,7 +176,7 @@ func TestBioToolsManagerWithApp(t *testing.T) {
 
 func TestBioToolsManagerPerformance(t *testing.T) {
 	// 性能测试：验证简化的生物信息学工具管理器性能
-	config := &BioToolsConfig{
+	config := &core.BioToolsConfig{
 		Enabled:           true,
 		ToolPaths:         []string{},
 		DefaultTimeout:    300,
@@ -184,7 +185,7 @@ func TestBioToolsManagerPerformance(t *testing.T) {
 		EnableMonitoring:  true,
 	}
 
-	processConfig := ProcessManagerConfig{
+	processConfig := core.ProcessManagerConfig{
 		Enabled:           true,
 		DiscoveryInterval: 5 * time.Second,
 		AutoDiscovery:     true,
@@ -194,8 +195,8 @@ func TestBioToolsManagerPerformance(t *testing.T) {
 		EnableControl:     true,
 	}
 
-	processManager := NewSimplifiedProcessManager(processConfig, nil)
-	bioToolsManager := NewBioToolsManager(config, processManager)
+	processManager := core.NewSimplifiedProcessManager(processConfig, nil)
+	bioToolsManager := core.NewBioToolsManager(config, processManager)
 
 	// 测试多次调用的性能
 	start := time.Now()
