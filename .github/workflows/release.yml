@@ -174,7 +174,7 @@ jobs:
         ls -la "$OUTPUT_NAME"
     
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: process-tracker-${{ matrix.os }}-${{ matrix.goarch }}
         path: |
@@ -189,7 +189,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Download All Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Prepare Release Files
       env:
