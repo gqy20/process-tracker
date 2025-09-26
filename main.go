@@ -18,7 +18,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.3"
+var Version = "0.3.4"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -233,6 +233,63 @@ func main() {
 		app.removeCustomGroup(os.Args[2])
 	case "discovery-stats":
 		app.showDiscoveryStats()
+	case "create-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务名称和命令")
+			fmt.Println("用法: process-tracker create-task <名称> <命令> [参数...]")
+			return
+		}
+		app.createTask(os.Args[2:])
+	case "list-tasks":
+		app.listTasks()
+	case "task-info":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker task-info <任务ID>")
+			return
+		}
+		app.showTaskInfo(os.Args[2])
+	case "start-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker start-task <任务ID>")
+			return
+		}
+		app.startTask(os.Args[2])
+	case "stop-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker stop-task <任务ID>")
+			return
+		}
+		app.stopTask(os.Args[2])
+	case "pause-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker pause-task <任务ID>")
+			return
+		}
+		app.pauseTask(os.Args[2])
+	case "resume-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker resume-task <任务ID>")
+			return
+		}
+		app.resumeTask(os.Args[2])
+	case "task-history":
+		app.showTaskHistory()
+	case "task-stats":
+		app.showTaskStats()
+	case "remove-task":
+		if len(os.Args) < 3 {
+			fmt.Println("❌ 请指定任务ID")
+			fmt.Println("用法: process-tracker remove-task <任务ID>")
+			return
+		}
+		app.removeTask(os.Args[2])
+	case "clear-tasks":
+		app.clearCompletedTasks()
 	case "help":
 		app.printUsage()
 	default:
@@ -241,7 +298,7 @@ func main() {
 }
 
 func (a *App) printUsage() {
-	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.3")
+	fmt.Println("进程跟踪器 - 智能进程监控工具 v0.3.4")
 	fmt.Println()
 	fmt.Println("使用方法:")
 	fmt.Println("  process-tracker <命令>")
@@ -272,6 +329,19 @@ func (a *App) printUsage() {
 	fmt.Println("  add-group          添加自定义进程组")
 	fmt.Println("  remove-group       移除自定义进程组")
 	fmt.Println("  discovery-stats    显示进程发现统计")
+	fmt.Println()
+	fmt.Println("任务管理命令:")
+	fmt.Println("  create-task        创建新任务")
+	fmt.Println("  list-tasks          列出所有任务")
+	fmt.Println("  task-info           显示任务详细信息")
+	fmt.Println("  start-task          启动任务")
+	fmt.Println("  stop-task           停止任务")
+	fmt.Println("  pause-task          暂停任务")
+	fmt.Println("  resume-task         恢复任务")
+	fmt.Println("  task-history        显示任务执行历史")
+	fmt.Println("  task-stats          显示任务统计")
+	fmt.Println("  remove-task         移除任务")
+	fmt.Println("  clear-tasks         清理已完成任务")
 	fmt.Println()
 	fmt.Println("其他命令:")
 	fmt.Println("  version            显示版本信息")
@@ -1256,5 +1326,277 @@ func (a *App) showDiscoveryStats() {
 		for group, count := range stats.GroupCounts {
 			fmt.Printf("   %s: %d\n", group, count)
 		}
+	}
+}
+
+// Task Manager CLI Methods
+
+// createTask creates a new task
+func (a *App) createTask(args []string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	taskName := args[0]
+	command := args[1]
+	var taskArgs []string
+	if len(args) > 2 {
+		taskArgs = args[2:]
+	}
+	
+	task := &core.Task{
+		Name:    taskName,
+		Command: command,
+		Args:    taskArgs,
+	}
+	
+	if err := a.CreateTask(task); err != nil {
+		fmt.Printf("❌ 创建任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务创建成功: %s (ID: %s)\n", taskName, task.ID)
+}
+
+// listTasks lists all tasks
+func (a *App) listTasks() {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	tasks := a.ListTasks()
+	if len(tasks) == 0 {
+		fmt.Println("📋 没有找到任何任务")
+		return
+	}
+	
+	fmt.Println("📋 任务列表:")
+	fmt.Println("========================================")
+	for _, task := range tasks {
+		statusIcon := getStatusIcon(task.Status)
+		fmt.Printf("%s %s - %s (%s)\n", statusIcon, task.ID, task.Name, task.Status)
+		fmt.Printf("   命令: %s", task.Command)
+		if len(task.Args) > 0 {
+			fmt.Printf(" %s", strings.Join(task.Args, " "))
+		}
+		fmt.Println()
+		if task.Description != "" {
+			fmt.Printf("   描述: %s\n", task.Description)
+		}
+		fmt.Println()
+	}
+}
+
+// showTaskInfo shows detailed information about a task
+func (a *App) showTaskInfo(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	task, err := a.GetTask(taskID)
+	if err != nil {
+		fmt.Printf("❌ 获取任务信息失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("📋 任务详细信息: %s\n", task.ID)
+	fmt.Println("========================================")
+	fmt.Printf("名称: %s\n", task.Name)
+	fmt.Printf("状态: %s\n", task.Status)
+	fmt.Printf("优先级: %d\n", task.Priority)
+	fmt.Printf("命令: %s\n", task.Command)
+	fmt.Printf("参数: %v\n", task.Args)
+	fmt.Printf("工作目录: %s\n", task.WorkingDir)
+	fmt.Printf("超时时间: %v\n", task.Timeout)
+	fmt.Printf("重试次数: %d/%d\n", task.RetryCount, task.MaxRetries)
+	fmt.Printf("创建时间: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+	
+	if !task.StartedAt.IsZero() {
+		fmt.Printf("开始时间: %s\n", task.StartedAt.Format("2006-01-02 15:04:05"))
+	}
+	
+	if !task.CompletedAt.IsZero() {
+		fmt.Printf("完成时间: %s\n", task.CompletedAt.Format("2006-01-02 15:04:05"))
+	}
+	
+	if task.ExitCode != 0 {
+		fmt.Printf("退出代码: %d\n", task.ExitCode)
+	}
+	
+	if task.PID != 0 {
+		fmt.Printf("进程ID: %d\n", task.PID)
+	}
+	
+	if task.LogPath != "" {
+		fmt.Printf("日志路径: %s\n", task.LogPath)
+	}
+	
+	if len(task.Dependencies) > 0 {
+		fmt.Printf("依赖任务: %v\n", task.Dependencies)
+	}
+	
+	if len(task.Tags) > 0 {
+		fmt.Printf("标签: %v\n", task.Tags)
+	}
+}
+
+// startTask starts a task
+func (a *App) startTask(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.StartTask(taskID); err != nil {
+		fmt.Printf("❌ 启动任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务启动成功: %s\n", taskID)
+}
+
+// stopTask stops a task
+func (a *App) stopTask(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.CancelTask(taskID); err != nil {
+		fmt.Printf("❌ 停止任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务停止成功: %s\n", taskID)
+}
+
+// pauseTask pauses a task
+func (a *App) pauseTask(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.PauseTask(taskID); err != nil {
+		fmt.Printf("❌ 暂停任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务暂停成功: %s\n", taskID)
+}
+
+// resumeTask resumes a task
+func (a *App) resumeTask(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.ResumeTask(taskID); err != nil {
+		fmt.Printf("❌ 恢复任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务恢复成功: %s\n", taskID)
+}
+
+// showTaskHistory shows task execution history
+func (a *App) showTaskHistory() {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	history := a.GetTaskHistory()
+	if len(history) == 0 {
+		fmt.Println("📋 没有找到任务执行历史")
+		return
+	}
+	
+	fmt.Println("📋 任务执行历史:")
+	fmt.Println("========================================")
+	for _, result := range history {
+		status := "✅"
+		if result.ExitCode != 0 {
+			status = "❌"
+		}
+		fmt.Printf("%s %s - 退出代码: %d, 耗时: %v\n", status, result.TaskID, result.ExitCode, result.Duration)
+		fmt.Printf("   时间: %s\n", result.Timestamp.Format("2006-01-02 15:04:05"))
+		if result.Error != "" {
+			fmt.Printf("   错误: %s\n", result.Error)
+		}
+		fmt.Println()
+	}
+}
+
+// showTaskStats shows task manager statistics
+func (a *App) showTaskStats() {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	stats := a.GetTaskStats()
+	fmt.Println("📊 任务管理统计:")
+	fmt.Println("========================================")
+	fmt.Printf("总任务数: %d\n", stats.TotalTasks)
+	fmt.Printf("已完成: %d\n", stats.CompletedTasks)
+	fmt.Printf("失败: %d\n", stats.FailedTasks)
+	fmt.Printf("运行中: %d\n", stats.RunningTasks)
+	fmt.Printf("等待中: %d\n", stats.PendingTasks)
+	if stats.AvgDuration > 0 {
+		fmt.Printf("平均耗时: %v\n", stats.AvgDuration)
+	}
+	fmt.Printf("最后更新: %s\n", stats.LastUpdated.Format("2006-01-02 15:04:05"))
+}
+
+// removeTask removes a task
+func (a *App) removeTask(taskID string) {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	if err := a.RemoveTask(taskID); err != nil {
+		fmt.Printf("❌ 移除任务失败: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ 任务移除成功: %s\n", taskID)
+}
+
+// clearCompletedTasks clears completed tasks
+func (a *App) clearCompletedTasks() {
+	if !a.Config.TaskManager.Enabled {
+		fmt.Println("❌ 任务管理功能未启用，请检查配置文件")
+		return
+	}
+	
+	count := a.ClearCompletedTasks()
+	fmt.Printf("✅ 清理了 %d 个已完成任务\n", count)
+}
+
+// getStatusIcon returns status icon for task status
+func getStatusIcon(status core.TaskStatus) string {
+	switch status {
+	case core.TaskStatusPending:
+		return "⏳"
+	case core.TaskStatusRunning:
+		return "▶️"
+	case core.TaskStatusCompleted:
+		return "✅"
+	case core.TaskStatusFailed:
+		return "❌"
+	case core.TaskStatusCancelled:
+		return "🚫"
+	case core.TaskStatusPaused:
+		return "⏸️"
+	case core.TaskStatusRetry:
+		return "🔄"
+	default:
+		return "❓"
 	}
 }

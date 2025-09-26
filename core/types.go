@@ -27,6 +27,9 @@ type Config struct {
 	
 	// Process discovery configuration
 	ProcessDiscovery     ProcessDiscoveryConfig `yaml:"process_discovery"`
+	
+	// Task manager configuration
+	TaskManager         TaskManagerConfig `yaml:"task_manager"`
 }
 
 // ProcessControlConfig configures process management features
@@ -87,6 +90,82 @@ const (
 	ActionNotify    QuotaAction = "notify"
 )
 
+// TaskManagerConfig configures task management and scheduling
+type TaskManagerConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	MaxTasks         int           `yaml:"max_tasks"`
+	CheckInterval    time.Duration `yaml:"check_interval"`
+	DefaultTimeout   time.Duration `yaml:"default_timeout"`
+	MaxConcurrent    int           `yaml:"max_concurrent"`
+	RetryAttempts    int           `yaml:"retry_attempts"`
+	RetryDelay       time.Duration `yaml:"retry_delay"`
+	LogLevel         string        `yaml:"log_level"`
+	EnableStats      bool          `yaml:"enable_stats"`
+	TaskHistorySize  int           `yaml:"task_history_size"`
+}
+
+// TaskStatus represents the status of a task
+type TaskStatus string
+
+const (
+	TaskStatusPending    TaskStatus = "pending"
+	TaskStatusRunning    TaskStatus = "running"
+	TaskStatusCompleted  TaskStatus = "completed"
+	TaskStatusFailed     TaskStatus = "failed"
+	TaskStatusCancelled  TaskStatus = "cancelled"
+	TaskStatusPaused     TaskStatus = "paused"
+	TaskStatusRetry      TaskStatus = "retry"
+)
+
+// TaskPriority represents task priority levels
+type TaskPriority int
+
+const (
+	TaskPriorityLow    TaskPriority = 1
+	TaskPriorityNormal TaskPriority = 2
+	TaskPriorityHigh   TaskPriority = 3
+	TaskPriorityCritical TaskPriority = 4
+)
+
+// Task represents a task to be executed
+type Task struct {
+	ID            string                 `yaml:"id"`
+	Name          string                 `yaml:"name"`
+	Description   string                 `yaml:"description"`
+	Command       string                 `yaml:"command"`
+	Args          []string               `yaml:"args"`
+	WorkingDir    string                 `yaml:"working_dir"`
+	Status        TaskStatus             `yaml:"status"`
+	Priority      TaskPriority           `yaml:"priority"`
+	Timeout       time.Duration          `yaml:"timeout"`
+	MaxRetries    int                    `yaml:"max_retries"`
+	RetryCount    int                    `yaml:"retry_count"`
+	Dependencies  []string               `yaml:"dependencies"`
+	CreatedAt     time.Time              `yaml:"created_at"`
+	StartedAt     time.Time              `yaml:"started_at"`
+	CompletedAt   time.Time              `yaml:"completed_at"`
+	ExitCode      int                    `yaml:"exit_code"`
+	PID           int32                  `yaml:"pid"`
+	LogPath       string                 `yaml:"log_path"`
+	EnvVars       map[string]string      `yaml:"env_vars"`
+	ResourceQuota string                 `yaml:"resource_quota"`
+	Tags          []string               `yaml:"tags"`
+	Metadata      map[string]interface{} `yaml:"metadata"`
+}
+
+// TaskResult represents the result of a task execution
+type TaskResult struct {
+	TaskID      string        `yaml:"task_id"`
+	ExitCode    int           `yaml:"exit_code"`
+	Output      string        `yaml:"output"`
+	Error       string        `yaml:"error"`
+	Duration    time.Duration `yaml:"duration"`
+	MemoryUsed  int64         `yaml:"memory_used"`
+	CPUUsed     float64       `yaml:"cpu_used"`
+	LogPath     string        `yaml:"log_path"`
+	Timestamp   time.Time     `yaml:"timestamp"`
+}
+
 // StorageConfig represents storage management configuration
 type StorageConfig struct {
 	MaxFileSizeMB      int     `yaml:"max_file_size_mb"`      // Maximum file size in MB before rotation
@@ -138,6 +217,18 @@ func GetDefaultConfig() Config {
 			MaxProcesses:      1000,
 			CPUThreshold:      50.0,
 			MemoryThresholdMB: 1024,
+		},
+		TaskManager: TaskManagerConfig{
+			Enabled:          true,
+			MaxTasks:         100,
+			CheckInterval:    10 * time.Second,
+			DefaultTimeout:    30 * time.Minute,
+			MaxConcurrent:    5,
+			RetryAttempts:    3,
+			RetryDelay:       5 * time.Second,
+			LogLevel:         "info",
+			EnableStats:      true,
+			TaskHistorySize:  1000,
 		},
 	}
 }

@@ -57,6 +57,9 @@ type App struct {
 	
 	// Process discovery management
 	ProcessDiscovery *ProcessDiscovery
+	
+	// Task management
+	TaskManager *TaskManager
 }
 
 // NewApp creates a new App instance
@@ -98,6 +101,11 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		app.ProcessDiscovery = NewProcessDiscovery(config.ProcessDiscovery, app)
 	}
 	
+	// Initialize task manager if enabled
+	if config.TaskManager.Enabled {
+		app.TaskManager = NewTaskManager(config.TaskManager, app)
+	}
+	
 	return app
 }
 
@@ -122,6 +130,11 @@ func (a *App) Initialize() error {
 	// Start process discovery manager if enabled
 	if a.ProcessDiscovery != nil {
 		a.ProcessDiscovery.Start()
+	}
+	
+	// Start task manager if enabled
+	if a.TaskManager != nil {
+		a.TaskManager.Start()
 	}
 	
 	return nil
@@ -778,6 +791,13 @@ func (a *App) StopProcessDiscovery() {
 	}
 }
 
+// StopTaskManager stops the task manager
+func (a *App) StopTaskManager() {
+	if a.TaskManager != nil {
+		a.TaskManager.Stop()
+	}
+}
+
 // AddProcessToQuota adds a process to a resource quota
 func (a *App) AddProcessToQuota(quotaName string, pid int32) error {
 	if a.QuotaManager == nil {
@@ -909,4 +929,114 @@ func (a *App) GetDiscoveryEvents() <-chan ProcessDiscoveryEvent {
 // GetPID returns the process ID of the current application
 func (a *App) GetPID() int {
 	return os.Getpid()
+}
+
+// TaskManager Access Methods
+
+// CreateTask creates a new task
+func (a *App) CreateTask(task *Task) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.CreateTask(task)
+}
+
+// StartTask starts a specific task
+func (a *App) StartTask(taskID string) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.StartTask(taskID)
+}
+
+// CancelTask cancels a running task
+func (a *App) CancelTask(taskID string) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.CancelTask(taskID)
+}
+
+// PauseTask pauses a task
+func (a *App) PauseTask(taskID string) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.PauseTask(taskID)
+}
+
+// ResumeTask resumes a paused task
+func (a *App) ResumeTask(taskID string) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.ResumeTask(taskID)
+}
+
+// GetTask retrieves a task by ID
+func (a *App) GetTask(taskID string) (*Task, error) {
+	if a.TaskManager == nil {
+		return nil, fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.GetTask(taskID)
+}
+
+// ListTasks returns all tasks
+func (a *App) ListTasks() []*Task {
+	if a.TaskManager == nil {
+		return []*Task{}
+	}
+	
+	return a.TaskManager.ListTasks()
+}
+
+// GetTaskHistory returns task execution history
+func (a *App) GetTaskHistory() []*TaskResult {
+	if a.TaskManager == nil {
+		return []*TaskResult{}
+	}
+	
+	return a.TaskManager.GetTaskHistory()
+}
+
+// GetTaskStats returns task manager statistics
+func (a *App) GetTaskStats() TaskStats {
+	if a.TaskManager == nil {
+		return TaskStats{}
+	}
+	
+	return a.TaskManager.GetStats()
+}
+
+// RemoveTask removes a task
+func (a *App) RemoveTask(taskID string) error {
+	if a.TaskManager == nil {
+		return fmt.Errorf("task manager is not enabled")
+	}
+	
+	return a.TaskManager.RemoveTask(taskID)
+}
+
+// ClearCompletedTasks removes completed tasks from memory
+func (a *App) ClearCompletedTasks() int {
+	if a.TaskManager == nil {
+		return 0
+	}
+	
+	return a.TaskManager.ClearCompletedTasks()
+}
+
+// GetTaskEvents returns the task event channel
+func (a *App) GetTaskEvents() <-chan TaskEvent {
+	if a.TaskManager == nil {
+		return make(chan TaskEvent)
+	}
+	
+	return a.TaskManager.events
 }
