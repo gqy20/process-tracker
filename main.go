@@ -29,8 +29,8 @@ func NewApp(dataFile string, interval time.Duration, config core.Config) *App {
 func main() {
 	// Parse command line flags
 	var (
-		configPath  = flag.String("config", os.ExpandEnv("$HOME/.process-tracker.yaml"), "配置文件路径")
-		dataFile    = flag.String("data-file", os.ExpandEnv("$HOME/.process-tracker.log"), "数据文件路径")
+		configPath  = flag.String("config", os.ExpandEnv("$HOME/.process-tracker/config.yaml"), "配置文件路径")
+		dataFile    = flag.String("data-file", os.ExpandEnv("$HOME/.process-tracker/process-tracker.log"), "数据文件路径")
 		intervalSec = flag.Int("interval", 5, "监控间隔(秒)")
 		granularity = flag.String("granularity", "simple", "统计粒度 (simple/detailed/full)")
 		help        = flag.Bool("help", false, "显示帮助信息")

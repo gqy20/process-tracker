@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -31,28 +32,71 @@ type App struct {
 	
 	// Storage manager
 	storage *Manager
+	
+	// Docker monitoring
+	dockerMonitor *DockerMonitor
 }
 
 // NewApp creates a new application instance
 func NewApp(dataFile string, interval time.Duration, config Config) *App {
-	useStorageMgr := config.Storage.MaxFileSizeMB > 0
+	// Always use storage manager with optimized defaults
+	useStorageMgr := true // Force enable storage manager for rotation
 	storageMgr := NewManager(dataFile, 100, useStorageMgr, config.Storage)
 	
+	// Create Docker monitor
+	dockerMonitor, err := NewDockerMonitor(config)
+	if err != nil {
+		log.Printf("Warning: Failed to create Docker monitor: %v", err)
+		dockerMonitor = nil
+	}
+	
 	return &App{
-		DataFile: dataFile,
-		Interval: interval,
-		Config:   config,
-		storage:  storageMgr,
+		DataFile:      dataFile,
+		Interval:      interval,
+		Config:        config,
+		storage:       storageMgr,
+		dockerMonitor: dockerMonitor,
 	}
 }
 
 // Initialize initializes the application
 func (a *App) Initialize() error {
-	return a.storage.Initialize()
+	// Validate configuration before initialization
+	if err := ValidateConfig(a.Config); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+	
+	// Initialize storage with rotation support
+	if err := a.storage.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize storage: %w", err)
+	}
+	
+	// Log storage configuration
+	log.Printf("Storage manager initialized with: MaxFileSize=%dMB, MaxFiles=%d, CompressAfter=%ddays, CleanupAfter=%ddays",
+		a.Config.Storage.MaxFileSizeMB,
+		a.Config.Storage.MaxFiles,
+		a.Config.Storage.CompressAfterDays,
+		a.Config.Storage.CleanupAfterDays)
+	
+	// Start Docker monitoring if enabled
+	if a.dockerMonitor != nil {
+		if err := a.dockerMonitor.Start(); err != nil {
+			log.Printf("Warning: Failed to start Docker monitoring: %v", err)
+		}
+	}
+	
+	return nil
 }
 
 // CloseFile closes file handles and cleans up resources
 func (a *App) CloseFile() error {
+	// Stop Docker monitoring
+	if a.dockerMonitor != nil {
+		if err := a.dockerMonitor.Stop(); err != nil {
+			log.Printf("Warning: Failed to stop Docker monitoring: %v", err)
+		}
+	}
+	
 	return a.storage.Close()
 }
 
@@ -304,6 +348,10 @@ func (a *App) CollectAndSaveData() error {
 		records = append(records, record)
 	}
 
+	// Add Docker container records
+	dockerRecords := a.collectDockerContainerRecords()
+	records = append(records, dockerRecords...)
+
 	// Save all records
 	if len(records) > 0 {
 		return a.storage.SaveRecords(records)
@@ -359,4 +407,39 @@ func (a *App) getProcessInfo(p *process.Process) (ProcessInfo, error) {
 	info.NetRecvKB = 0.0
 	
 	return info, nil
+}
+
+// collectDockerContainerRecords collects Docker container statistics
+func (a *App) collectDockerContainerRecords() []ResourceRecord {
+	if a.dockerMonitor == nil {
+		return []ResourceRecord{}
+	}
+
+	stats, err := a.dockerMonitor.GetContainerStats()
+	if err != nil {
+		log.Printf("Warning: Failed to collect Docker stats: %v", err)
+		return []ResourceRecord{}
+	}
+
+	var records []ResourceRecord
+	for _, stat := range stats {
+		record := ResourceRecord{
+			Name:        fmt.Sprintf("docker:%s", stat.ContainerName),
+			Timestamp:   stat.Timestamp,
+			CPUPercent:  stat.CPUPercent,
+			MemoryMB:    float64(stat.MemoryUsage) / 1024 / 1024, // Convert to MB
+			Threads:     0, // Not available for containers
+			DiskReadMB:  float64(stat.BlockReadBytes) / 1024 / 1024,
+			DiskWriteMB: float64(stat.BlockWriteBytes) / 1024 / 1024,
+			NetSentKB:   float64(stat.NetworkTxBytes) / 1024,
+			NetRecvKB:   float64(stat.NetworkRxBytes) / 1024,
+			IsActive:    stat.CPUPercent > 1.0 || stat.MemoryPercent > 1.0,
+			Command:     fmt.Sprintf("container:%s", stat.Image),
+			WorkingDir:  "",
+			Category:    "docker",
+		}
+		records = append(records, record)
+	}
+
+	return records
 }

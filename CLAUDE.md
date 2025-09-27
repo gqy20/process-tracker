@@ -109,11 +109,11 @@ The application implements intelligent storage management to prevent unlimited l
 ### Configuration Example
 ```yaml
 storage:
-  max_file_size_mb: 100     # Rotate files at 100MB
-  max_files: 10            # Keep 10 files maximum
-  compress_after_days: 3   # Compress after 3 days
-  cleanup_after_days: 30   # Delete after 30 days
-  auto_cleanup: true        # Enable automatic management
+  max_file_size_mb: 50      # Rotate files at 50MB (optimized default)
+  max_files: 5             # Keep 5 files maximum (optimized default)
+  compress_after_days: 1   # Compress after 1 day (optimized default)
+  cleanup_after_days: 7    # Delete after 7 days (optimized default)
+  auto_cleanup: true       # Enable automatic management
 ```
 
 ## Process Monitoring Strategy
@@ -137,8 +137,20 @@ storage:
 ## Configuration Management
 
 ### Default Configuration Path
-- `~/.process-tracker.yaml` - User-level configuration
+- `~/.process-tracker/config.yaml` - User-level configuration
+- `~/.process-tracker/process-tracker.log` - Main log file
 - Supports environment variable expansion for paths
+
+### Directory Structure
+```
+~/.process-tracker/
+├── config.yaml                    # Configuration file
+├── process-tracker.log            # Main log file
+├── process-tracker.log.1          # Rotated log file
+├── process-tracker.log.2          # Rotated log file
+├── process-tracker.log.3.gz      # Compressed old log
+└── legacy-data-backup.log        # Backup of historical data (if any)
+```
 
 ### Key Configuration Sections
 - `statistics_granularity`: Controls detail level (simple/detailed/full)

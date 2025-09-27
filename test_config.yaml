@@ -1,0 +1,19 @@
+# 测试存储轮转配置
+statistics_granularity: "simple"
+show_commands: false
+show_working_dirs: false
+use_smart_categories: true
+max_command_length: 100
+max_dir_length: 50
+
+storage:
+  max_file_size_mb: 1      # 1MB 用于快速测试轮转
+  max_files: 3            # 最多保留3个文件
+  compress_after_days: 0  # 立即压缩
+  cleanup_after_days: 1   # 1天后清理
+  auto_cleanup: true
+
+docker:
+  enabled: true
+  interval: 10s
+  socket_path: "/var/run/docker.sock"

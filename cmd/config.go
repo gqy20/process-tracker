@@ -82,25 +82,8 @@ func createDefaultConfigFile(configPath string, config core.Config) error {
 
 // validateConfig validates the configuration
 func validateConfig(config core.Config) error {
-	// Note: Config doesn't have Interval field, it's handled at app level
-	
-	if config.Storage.MaxFileSizeMB < 1 {
-		return fmt.Errorf("max_file_size_mb must be at least 1")
-	}
-	
-	if config.Storage.MaxFiles < 1 {
-		return fmt.Errorf("max_files must be at least 1")
-	}
-	
-	if config.Storage.CompressAfterDays < 0 {
-		return fmt.Errorf("compress_after_days cannot be negative")
-	}
-	
-	if config.Storage.CleanupAfterDays < 0 {
-		return fmt.Errorf("cleanup_after_days cannot be negative")
-	}
-	
-	return nil
+	// Use the comprehensive validation from core package
+	return core.ValidateConfig(config)
 }
 
 // PrintUsage displays command usage information
@@ -118,14 +101,21 @@ func PrintUsage(version string) {
 	fmt.Println("")
 	fmt.Println("选项:")
 	fmt.Println("  -g, --granularity  统计粒度 (simple/detailed/full)")
-	fmt.Println("  -c, --config       配置文件路径")
-	fmt.Println("  -d, --data-file    数据文件路径")
+	fmt.Println("  -c, --config       配置文件路径 (默认: ~/.process-tracker/config.yaml)")
+	fmt.Println("  -d, --data-file    数据文件路径 (默认: ~/.process-tracker/process-tracker.log)")
 	fmt.Println("  -i, --interval     监控间隔(秒)")
 	fmt.Println("")
 	fmt.Println("示例:")
 	fmt.Println("  process-tracker start")
 	fmt.Println("  process-tracker today -g simple")
 	fmt.Println("  process-tracker export data.json")
+	fmt.Println("")
+	fmt.Println("默认目录结构:")
+	fmt.Println("  ~/.process-tracker/")
+	fmt.Println("  ├── config.yaml         # 配置文件")
+	fmt.Println("  ├── process-tracker.log  # 主日志文件")
+	fmt.Println("  ├── process-tracker.log.1 # 轮转日志文件")
+	fmt.Println("  └── process-tracker.log.2 # 轮转日志文件")
 }
 
 // DisplayStats displays statistics with appropriate formatting

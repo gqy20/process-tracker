@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -14,6 +15,7 @@ type Config struct {
 	MaxCommandLength     int     // Maximum command length to display
 	MaxDirLength         int     // Maximum directory length to display
 	Storage              StorageConfig // Storage management configuration
+	Docker               DockerConfig  // Docker monitoring configuration
 }
 
 // StorageConfig represents storage management configuration
@@ -68,6 +70,13 @@ type ActivityConfig struct {
 	MinActiveTime     int     `yaml:"min_active_time"`     // Minimum time in seconds to be considered active
 }
 
+// DockerConfig represents Docker monitoring configuration
+type DockerConfig struct {
+	Enabled  bool          `yaml:"enabled"`   // Enable Docker monitoring
+	Interval time.Duration `yaml:"interval"` // Collection interval
+	SocketPath string      `yaml:"socket_path"` // Docker socket path
+}
+
 // GetDefaultConfig returns default configuration
 func GetDefaultConfig() Config {
 	return Config{
@@ -78,11 +87,16 @@ func GetDefaultConfig() Config {
 		MaxCommandLength:     100,
 		MaxDirLength:         50,
 		Storage: StorageConfig{
-			MaxFileSizeMB:     100,
-			MaxFiles:          10,
-			CompressAfterDays: 3,
-			CleanupAfterDays:  30,
+			MaxFileSizeMB:     50,     // 减小单文件大小限制
+			MaxFiles:          5,      // 减少保留文件数量
+			CompressAfterDays: 1,      // 更早压缩旧文件
+			CleanupAfterDays:  7,      // 更短的数据保留期
 			AutoCleanup:       true,
+		},
+		Docker: DockerConfig{
+			Enabled:    true,
+			Interval:   10 * time.Second,
+			SocketPath: "/var/run/docker.sock",
 		},
 	}
 }
@@ -153,4 +167,67 @@ func IdentifyApplication(name, command string, useSmartCategories bool) string {
 	}
 
 	return "other"
+}
+
+// ValidateStorageConfig validates storage configuration with optimized defaults
+func ValidateStorageConfig(config StorageConfig) error {
+	if config.MaxFileSizeMB <= 0 {
+		return fmt.Errorf("max_file_size_mb must be positive")
+	}
+	if config.MaxFileSizeMB > 500 {
+		return fmt.Errorf("max_file_size_mb too large (max 500MB), recommended: 50MB")
+	}
+	if config.MaxFiles < 1 {
+		return fmt.Errorf("max_files must be at least 1")
+	}
+	if config.MaxFiles > 50 {
+		return fmt.Errorf("max_files too large (max 50), recommended: 5")
+	}
+	if config.CompressAfterDays < 0 {
+		return fmt.Errorf("compress_after_days must be non-negative")
+	}
+	if config.CompressAfterDays > 30 {
+		return fmt.Errorf("compress_after_days too large (max 30), recommended: 1")
+	}
+	if config.CleanupAfterDays < 0 {
+		return fmt.Errorf("cleanup_after_days must be non-negative")
+	}
+	if config.CleanupAfterDays > 365 {
+		return fmt.Errorf("cleanup_after_days too large (max 365), recommended: 7")
+	}
+	if config.CleanupAfterDays > 0 && config.CleanupAfterDays < config.CompressAfterDays {
+		return fmt.Errorf("cleanup_after_days must be >= compress_after_days")
+	}
+	return nil
+}
+
+// ValidateConfig validates the entire configuration
+func ValidateConfig(config Config) error {
+	if err := ValidateStorageConfig(config.Storage); err != nil {
+		return fmt.Errorf("storage config invalid: %w", err)
+	}
+	
+	if config.StatisticsGranularity != "simple" && 
+	   config.StatisticsGranularity != "detailed" && 
+	   config.StatisticsGranularity != "full" {
+		return fmt.Errorf("statistics_granularity must be 'simple', 'detailed', or 'full'")
+	}
+	
+	if config.MaxCommandLength < 10 {
+		return fmt.Errorf("max_command_length too small (min 10)")
+	}
+	
+	if config.MaxCommandLength > 1000 {
+		return fmt.Errorf("max_command_length too large (max 1000)")
+	}
+	
+	if config.MaxDirLength < 10 {
+		return fmt.Errorf("max_dir_length too small (min 10)")
+	}
+	
+	if config.MaxDirLength > 500 {
+		return fmt.Errorf("max_dir_length too large (max 500)")
+	}
+	
+	return nil
 }

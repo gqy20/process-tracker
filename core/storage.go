@@ -359,6 +359,19 @@ func (m *Manager) flushBuffer() error {
 		return nil
 	}
 
+	// Use storage manager if enabled (handles rotation)
+	if m.useStorageMgr && m.storageManager != nil {
+		for _, record := range m.buffer {
+			line := m.formatRecord(record)
+			if err := m.storageManager.WriteRecord(line); err != nil {
+				return err
+			}
+		}
+		m.buffer = m.buffer[:0] // Clear buffer
+		return nil
+	}
+
+	// Fall back to direct file writing for backward compatibility
 	if m.writer == nil {
 		if err := m.initializeFile(); err != nil {
 			return err
