@@ -118,6 +118,31 @@ func (m *Manager) DetectDataFormat(filePath string) (int, error) {
 
 // ReadRecords reads resource records from file
 func (m *Manager) ReadRecords(filePath string) ([]ResourceRecord, error) {
+	// Try main file first, then newest rotated file
+	filesToTry := []string{filePath}
+	
+	// Look for rotated files if main file doesn't exist
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if matches, _ := filepath.Glob(filePath + ".*"); len(matches) > 0 {
+			filesToTry = append(filesToTry, matches...)
+		}
+	}
+	
+	// Try each file until we find one that works
+	var lastErr error
+	for _, file := range filesToTry {
+		if records, err := m.readSingleFile(file); err == nil {
+			return records, nil
+		} else {
+			lastErr = err
+		}
+	}
+	
+	return nil, fmt.Errorf("no readable log files found: %v", lastErr)
+}
+
+// readSingleFile reads records from a single file
+func (m *Manager) readSingleFile(filePath string) ([]ResourceRecord, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err

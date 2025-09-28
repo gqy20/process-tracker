@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -122,21 +121,22 @@ func (sm *StorageManager) rotate() error {
 	// Find the next available index
 	sm.currentIndex++
 	
-	// Remove old files if we exceed max files
+	// Simple cleanup: remove oldest if we have too many files (including the one we're about to create)
 	if sm.config.MaxFiles > 0 {
 		files, err := sm.getLogFiles()
 		if err != nil {
 			return err
 		}
 		
-		// Sort by index (newest first)
-		sort.Slice(files, func(i, j int) bool {
-			return files[i].Index > files[j].Index
-		})
-		
-		// Remove excess files
-		for i := sm.config.MaxFiles; i < len(files); i++ {
-			os.Remove(files[i].Path)
+		// If we have too many files, remove the oldest one
+		if len(files) >= sm.config.MaxFiles {
+			oldest := files[0]
+			for _, f := range files {
+				if f.ModTime.Before(oldest.ModTime) {
+					oldest = f
+				}
+			}
+			os.Remove(oldest.Path)
 		}
 	}
 
@@ -147,7 +147,7 @@ func (sm *StorageManager) rotate() error {
 // openCurrentFile opens the current log file
 func (sm *StorageManager) openCurrentFile() error {
 	if sm.currentIndex == 0 {
-		// Try to use the base file first
+		// Always try to create the main file first
 		file, err := os.OpenFile(sm.basePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
 			sm.currentFile = file
@@ -157,7 +157,7 @@ func (sm *StorageManager) openCurrentFile() error {
 			}
 			return nil
 		}
-		// If base file doesn't exist or can't be opened, use indexed file
+		// If main file fails, fall back to indexed file
 		sm.currentIndex = 1
 	}
 
