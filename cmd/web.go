@@ -163,12 +163,15 @@ type TimelinePoint struct {
 }
 
 type ProcessSummary struct {
-	PID        int32   `json:"pid"`
-	Name       string  `json:"name"`
-	CPUPercent float64 `json:"cpu_percent"`
-	MemoryMB   float64 `json:"memory_mb"`
-	Status     string  `json:"status"`
-	Uptime     string  `json:"uptime"`
+	PID           int32   `json:"pid"`
+	Name          string  `json:"name"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryMB      float64 `json:"memory_mb"`
+	MemoryPercent float64 `json:"memory_percent"`
+	Status        string  `json:"status"`
+	Uptime        string  `json:"uptime"`
+	Category      string  `json:"category"`
+	Command       string  `json:"command"`
 }
 
 // handleStatsToday handles today's statistics
@@ -245,8 +248,8 @@ func (ws *WebServer) handleProcesses(w http.ResponseWriter, r *http.Request) {
 		sortBy = "cpu"
 	}
 
-	// Get recent records
-	records, err := ws.readRecentRecords(1 * time.Minute)
+	// Get recent records (5 minutes for better robustness)
+	records, err := ws.readRecentRecords(5 * time.Minute)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("读取数据失败: %v", err), http.StatusInternalServerError)
 		return
@@ -480,10 +483,17 @@ type timelineBucket struct {
 
 // getTopProcesses returns top N processes by CPU usage
 func (ws *WebServer) getTopProcesses(processMap map[string]*processStats, n int) []ProcessSummary {
+	totalMemoryMB := core.SystemMemoryMB()
+	
 	var processes []ProcessSummary
 	for _, ps := range processMap {
 		avgCPU := ps.totalCPU / float64(ps.count)
 		avgMem := ps.totalMem / float64(ps.count)
+		
+		memoryPercent := 0.0
+		if totalMemoryMB > 0 {
+			memoryPercent = (avgMem / totalMemoryMB) * 100
+		}
 
 		uptime := ""
 		if ps.lastRecord.CreateTime > 0 {
@@ -492,12 +502,15 @@ func (ws *WebServer) getTopProcesses(processMap map[string]*processStats, n int)
 		}
 
 		processes = append(processes, ProcessSummary{
-			PID:        ps.lastRecord.PID,
-			Name:       ps.name,
-			CPUPercent: avgCPU,
-			MemoryMB:   avgMem,
-			Status:     getStatus(ps.lastRecord.IsActive),
-			Uptime:     uptime,
+			PID:           ps.lastRecord.PID,
+			Name:          ps.name,
+			CPUPercent:    avgCPU,
+			MemoryMB:      avgMem,
+			MemoryPercent: memoryPercent,
+			Status:        getStatus(ps.lastRecord.IsActive),
+			Uptime:        uptime,
+			Category:      ps.lastRecord.Category,
+			Command:       ps.lastRecord.Command,
 		})
 	}
 
@@ -519,17 +532,24 @@ func (ws *WebServer) getLatestProcesses(records []core.ResourceRecord) []Process
 		return []ProcessSummary{}
 	}
 
-	// Get latest record for each process
-	latest := make(map[string]core.ResourceRecord)
+	totalMemoryMB := core.SystemMemoryMB()
+
+	// Get latest record for each process (using PID as unique identifier)
+	latest := make(map[int32]core.ResourceRecord)
 	for _, r := range records {
-		if existing, ok := latest[r.Name]; !ok || r.Timestamp.After(existing.Timestamp) {
-			latest[r.Name] = r
+		if existing, ok := latest[r.PID]; !ok || r.Timestamp.After(existing.Timestamp) {
+			latest[r.PID] = r
 		}
 	}
 
 	// Convert to ProcessSummary
 	var processes []ProcessSummary
 	for _, r := range latest {
+		memoryPercent := 0.0
+		if totalMemoryMB > 0 {
+			memoryPercent = (r.MemoryMB / totalMemoryMB) * 100
+		}
+		
 		uptime := ""
 		if r.CreateTime > 0 {
 			startTime := time.UnixMilli(r.CreateTime)
@@ -537,12 +557,15 @@ func (ws *WebServer) getLatestProcesses(records []core.ResourceRecord) []Process
 		}
 
 		processes = append(processes, ProcessSummary{
-			PID:        r.PID,
-			Name:       r.Name,
-			CPUPercent: r.CPUPercent,
-			MemoryMB:   r.MemoryMB,
-			Status:     getStatus(r.IsActive),
-			Uptime:     uptime,
+			PID:           r.PID,
+			Name:          r.Name,
+			CPUPercent:    r.CPUPercentNormalized,
+			MemoryMB:      r.MemoryMB,
+			MemoryPercent: memoryPercent,
+			Status:        getStatus(r.IsActive),
+			Uptime:        uptime,
+			Category:      r.Category,
+			Command:       r.Command,
 		})
 	}
 
