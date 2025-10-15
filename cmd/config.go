@@ -198,20 +198,24 @@ func displaySimpleStatsEnhanced(stats []core.ResourceStats, totalCount int) {
 	}
 
 	fmt.Println("📊 进程使用统计")
-	fmt.Println(strings.Repeat("─", 95))
-	fmt.Printf("%-25s %12s %12s %15s %12s\n", "进程名称", "活跃时间", "内存占比", "平均内存", "平均CPU")
-	fmt.Println(strings.Repeat("─", 95))
+	fmt.Println(strings.Repeat("─", 130))
+	fmt.Printf("%-20s %8s %12s %12s %12s %12s %12s\n",
+		"进程名称", "PID", "运行时长", "CPU时间", "内存占比", "平均内存", "平均CPU")
+	fmt.Println(strings.Repeat("─", 130))
 
 	totalMem := calculateTotalMemory(stats)
 
 	for _, stat := range stats {
-		activeTime := formatDuration(stat.ActiveTime)
+		pidStr := formatPIDs(stat.PIDs)
+		uptimeStr := formatDuration(stat.TotalUptime)
+		cpuTimeStr := formatDuration(stat.TotalCPUTime)
 		memPercent := fmt.Sprintf("%.1f%%", (stat.MemoryAvg/totalMem)*100)
 		memFormatted := formatBytes(stat.MemoryAvg)
 		cpuPercent := fmt.Sprintf("%.1f%%", stat.CPUAvg)
 
-		fmt.Printf("%-25s %12s %12s %15s %12s\n",
-			truncateString(stat.Name, 25), activeTime, memPercent, memFormatted, cpuPercent)
+		fmt.Printf("%-20s %8s %12s %12s %12s %12s %12s\n",
+			truncateString(stat.Name, 20), pidStr, uptimeStr, cpuTimeStr,
+			memPercent, memFormatted, cpuPercent)
 	}
 
 	if totalCount > len(stats) {
@@ -306,6 +310,18 @@ func formatDuration(d time.Duration) string {
 		hours := int(d.Hours()) % 24
 		return fmt.Sprintf("%dd%dh", days, hours)
 	}
+}
+
+// formatPIDs formats PID list in compact form
+func formatPIDs(pids []int32) string {
+	if len(pids) == 0 {
+		return "-"
+	}
+	if len(pids) == 1 {
+		return fmt.Sprintf("%d", pids[0])
+	}
+	// Show first PID + count for multiple PIDs
+	return fmt.Sprintf("%d+%d", pids[0], len(pids)-1)
 }
 
 // truncateString truncates string to specified length

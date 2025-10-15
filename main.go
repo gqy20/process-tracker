@@ -130,6 +130,15 @@ func main() {
 			log.Fatalf("导出数据失败: %v", err)
 		}
 
+	case "clear-data", "reset":
+		clearFlags := flag.NewFlagSet("clear-data", flag.ExitOnError)
+		force := clearFlags.Bool("force", false, "强制清除不提示确认")
+		clearFlags.Parse(flag.Args()[1:])
+
+		if err := monitorCmd.ClearAllData(*force); err != nil {
+			log.Fatalf("清除数据失败: %v", err)
+		}
+
 	default:
 		fmt.Printf("❌ 未知命令: %s\n\n", command)
 		cmd.PrintUsage(Version)

@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/yourusername/process-tracker/core"
@@ -139,4 +143,60 @@ func parsePeriod(period string) (time.Duration, error) {
 	default:
 		return 0, fmt.Errorf("不支持的时间段: %s (支持: today, yesterday, week, month)", period)
 	}
+}
+
+// ClearAllData removes all historical data files
+func (mc *MonitoringCommands) ClearAllData(force bool) error {
+	dataDir := filepath.Dir(mc.app.DataFile)
+	baseFile := filepath.Base(mc.app.DataFile)
+
+	if !force {
+		fmt.Printf("\n⚠️  警告: 即将删除所有历史数据文件\n")
+		fmt.Printf("📂 目录: %s\n", dataDir)
+		fmt.Printf("🗑️  文件模式: %s*\n\n", baseFile)
+		fmt.Printf("确认删除? (yes/no): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		confirm, _ := reader.ReadString('\n')
+		confirm = strings.TrimSpace(strings.ToLower(confirm))
+
+		if confirm != "yes" && confirm != "y" {
+			fmt.Println("❌ 已取消操作")
+			return nil
+		}
+	}
+
+	// Find all related files
+	pattern := filepath.Join(dataDir, baseFile+"*")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("查找数据文件失败: %w", err)
+	}
+
+	if len(files) == 0 {
+		fmt.Println("ℹ️  未找到数据文件")
+		return nil
+	}
+
+	// Delete files
+	deleted := 0
+	var errors []error
+	for _, file := range files {
+		if err := os.Remove(file); err != nil {
+			errors = append(errors, err)
+			fmt.Printf("❌ 删除失败: %s - %v\n", filepath.Base(file), err)
+		} else {
+			deleted++
+			if !force {
+				fmt.Printf("✅ 已删除: %s\n", filepath.Base(file))
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("部分文件删除失败 (%d个错误)", len(errors))
+	}
+
+	fmt.Printf("\n✅ 成功删除 %d 个数据文件\n", deleted)
+	return nil
 }

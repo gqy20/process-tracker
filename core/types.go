@@ -37,6 +37,9 @@ type ResourceRecord struct {
 	Command     string    `json:"command"`
 	WorkingDir  string    `json:"working_dir"`
 	Category    string    `json:"category"`
+	PID         int32     `json:"pid"`         // Process ID
+	CreateTime  int64     `json:"create_time"` // Process start time (Unix timestamp)
+	CPUTime     float64   `json:"cpu_time"`    // Cumulative CPU time in seconds
 }
 
 // ResourceStats represents calculated resource statistics
@@ -56,6 +59,12 @@ type ResourceStats struct {
 	NetRecvAvg    float64       `json:"net_recv_avg"`
 	Samples       int           `json:"samples"`
 	ActiveSamples int           `json:"active_samples"`
+	PIDs          []int32       `json:"pids"`            // All observed PIDs
+	FirstSeen     time.Time     `json:"first_seen"`      // First observation time
+	LastSeen      time.Time     `json:"last_seen"`       // Last observation time
+	TotalUptime   time.Duration `json:"total_uptime"`    // Total running time
+	TotalCPUTime  time.Duration `json:"total_cpu_time"`  // Total CPU time consumed
+	AvgCPUTime    float64       `json:"avg_cpu_time"`    // Average CPU time per sample
 }
 
 // ActivityConfig represents activity detection configuration

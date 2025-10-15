@@ -94,36 +94,6 @@ func (m *Manager) SaveRecord(record ResourceRecord) error {
 	return nil
 }
 
-// DetectDataFormat detects the format version of a data file
-func (m *Manager) DetectDataFormat(filePath string) (int, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return 0, fmt.Errorf("empty file")
-	}
-
-	line := scanner.Text()
-	fields := strings.Split(line, ",")
-
-	switch len(fields) {
-	case 7: // Original format: timestamp,name,cpu,memory,threads,disk_io,network_io
-		return 1, nil
-	case 11: // Format v2: added activity status
-		return 2, nil
-	case 13: // Format v3: added command and working directory
-		return 3, nil
-	case 14: // Format v4: added category
-		return 4, nil
-	default:
-		return 0, fmt.Errorf("unknown format with %d fields", len(fields))
-	}
-}
-
 // ReadRecords reads resource records from file
 func (m *Manager) ReadRecords(filePath string) ([]ResourceRecord, error) {
 	// Try main file first, then newest rotated file
@@ -157,16 +127,11 @@ func (m *Manager) readSingleFile(filePath string) ([]ResourceRecord, error) {
 	}
 	defer file.Close()
 
-	format, err := m.DetectDataFormat(filePath)
-	if err != nil {
-		return nil, err
-	}
-
 	var records []ResourceRecord
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-		record, err := m.parseRecord(scanner.Text(), format)
+		record, err := m.parseRecord(scanner.Text())
 		if err != nil {
 			continue // Skip malformed records
 		}
@@ -176,64 +141,35 @@ func (m *Manager) readSingleFile(filePath string) ([]ResourceRecord, error) {
 	return records, nil
 }
 
-// parseRecord parses a single line into a ResourceRecord
-func (m *Manager) parseRecord(line string, format int) (ResourceRecord, error) {
+// parseRecord parses a single line into ResourceRecord (Format v5 - 16 fields)
+func (m *Manager) parseRecord(line string) (ResourceRecord, error) {
 	fields := strings.Split(line, ",")
-	if len(fields) < 7 {
-		return ResourceRecord{}, fmt.Errorf("invalid record format")
+	if len(fields) != 16 {
+		return ResourceRecord{}, fmt.Errorf("invalid format: expected 16 fields, got %d", len(fields))
 	}
 
 	record := ResourceRecord{}
 
-	// Parse timestamp (common to all formats)
-	timestamp, err := strconv.ParseInt(fields[0], 10, 64)
-	if err != nil {
-		return ResourceRecord{}, fmt.Errorf("invalid timestamp: %w", err)
-	}
+	// Parse all fields directly (no version checking)
+	timestamp, _ := strconv.ParseInt(fields[0], 10, 64)
 	record.Timestamp = time.Unix(timestamp, 0)
-
-	// Parse basic fields (common to all formats)
 	record.Name = fields[1]
-	if cpu, err := strconv.ParseFloat(fields[2], 64); err == nil {
-		record.CPUPercent = cpu
-	}
-	if mem, err := strconv.ParseFloat(fields[3], 64); err == nil {
-		record.MemoryMB = mem
-	}
-	if threads, err := strconv.ParseInt(fields[4], 10, 32); err == nil {
-		record.Threads = int32(threads)
-	}
-	if diskRead, err := strconv.ParseFloat(fields[5], 64); err == nil {
-		record.DiskReadMB = diskRead
-	}
-	if diskWrite, err := strconv.ParseFloat(fields[6], 64); err == nil {
-		record.DiskWriteMB = diskWrite
-	}
-
-	// Parse format-specific fields
-	if format >= 1 && len(fields) > 7 {
-		if netSent, err := strconv.ParseFloat(fields[7], 64); err == nil {
-			record.NetSentKB = netSent
-		}
-		if netRecv, err := strconv.ParseFloat(fields[8], 64); err == nil {
-			record.NetRecvKB = netRecv
-		}
-	}
-
-	if format >= 2 && len(fields) > 10 {
-		if active, err := strconv.ParseBool(fields[10]); err == nil {
-			record.IsActive = active
-		}
-	}
-
-	if format >= 3 && len(fields) > 12 {
-		record.Command = fields[11]
-		record.WorkingDir = fields[12]
-	}
-
-	if format >= 4 && len(fields) > 13 {
-		record.Category = fields[13]
-	}
+	record.CPUPercent, _ = strconv.ParseFloat(fields[2], 64)
+	record.MemoryMB, _ = strconv.ParseFloat(fields[3], 64)
+	threads, _ := strconv.ParseInt(fields[4], 10, 32)
+	record.Threads = int32(threads)
+	record.DiskReadMB, _ = strconv.ParseFloat(fields[5], 64)
+	record.DiskWriteMB, _ = strconv.ParseFloat(fields[6], 64)
+	record.NetSentKB, _ = strconv.ParseFloat(fields[7], 64)
+	record.NetRecvKB, _ = strconv.ParseFloat(fields[8], 64)
+	record.IsActive, _ = strconv.ParseBool(fields[9])
+	record.Command = fields[10]
+	record.WorkingDir = fields[11]
+	record.Category = fields[12]
+	pid, _ := strconv.ParseInt(fields[13], 10, 32)
+	record.PID = int32(pid)
+	record.CreateTime, _ = strconv.ParseInt(fields[14], 10, 64)
+	record.CPUTime, _ = strconv.ParseFloat(fields[15], 64)
 
 	return record, nil
 }
@@ -297,6 +233,53 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 
 		// Calculate active time
 		stat.ActiveTime = m.calculateActiveTime(processRecords)
+
+		// Calculate new statistics
+		pidSet := make(map[int32]bool)
+		var firstSeen, lastSeen time.Time
+		var totalCPUTime float64
+
+		for i, record := range processRecords {
+			// Collect PIDs
+			if record.PID > 0 {
+				pidSet[record.PID] = true
+			}
+
+			// Track observation times
+			if i == 0 || record.Timestamp.Before(firstSeen) {
+				firstSeen = record.Timestamp
+			}
+			if i == 0 || record.Timestamp.After(lastSeen) {
+				lastSeen = record.Timestamp
+			}
+
+			// Sum CPU time
+			if record.CPUTime > 0 {
+				totalCPUTime += record.CPUTime
+			}
+		}
+
+		// Convert PID set to slice
+		pids := make([]int32, 0, len(pidSet))
+		for pid := range pidSet {
+			pids = append(pids, pid)
+		}
+		stat.PIDs = pids
+
+		// Set observation times
+		stat.FirstSeen = firstSeen
+		stat.LastSeen = lastSeen
+
+		// Calculate total uptime
+		if !firstSeen.IsZero() && !lastSeen.IsZero() {
+			stat.TotalUptime = lastSeen.Sub(firstSeen)
+		}
+
+		// Calculate CPU time statistics
+		stat.TotalCPUTime = time.Duration(totalCPUTime * float64(time.Second))
+		if len(processRecords) > 0 {
+			stat.AvgCPUTime = totalCPUTime / float64(len(processRecords))
+		}
 
 		stats = append(stats, stat)
 	}
@@ -439,6 +422,9 @@ func (m *Manager) formatRecord(record ResourceRecord) string {
 		record.Command,
 		record.WorkingDir,
 		record.Category,
+		strconv.FormatInt(int64(record.PID), 10),
+		strconv.FormatInt(record.CreateTime, 10),
+		strconv.FormatFloat(record.CPUTime, 'f', 2, 64),
 	}
 	return strings.Join(fields, ",") + "\n"
 }

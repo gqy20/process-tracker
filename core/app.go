@@ -22,6 +22,8 @@ type ProcessInfo struct {
 	DiskWriteMB float64
 	NetSentKB   float64
 	NetRecvKB   float64
+	CreateTime  int64   // Process start time (Unix timestamp in milliseconds)
+	CPUTime     float64 // Cumulative CPU time in seconds (User + System)
 }
 
 // App represents the simplified application core
@@ -106,11 +108,6 @@ func (a *App) SaveResourceRecords(records []ResourceRecord) error {
 // SaveResourceRecord saves a single resource record
 func (a *App) SaveResourceRecord(record ResourceRecord) error {
 	return a.storage.SaveRecord(record)
-}
-
-// DetectDataFormat detects the format version of a data file
-func (a *App) DetectDataFormat(filePath string) (int, error) {
-	return a.storage.DetectDataFormat(filePath)
 }
 
 // ReadResourceRecords reads resource records from file
@@ -386,6 +383,16 @@ func (a *App) GetProcessInfo(p *process.Process) (ProcessInfo, error) {
 		info.DiskWriteMB = float64(ioCounters.WriteBytes) / 1024 / 1024
 	}
 
+	// Get process creation time
+	if createTime, err := p.CreateTime(); err == nil {
+		info.CreateTime = createTime
+	}
+
+	// Get cumulative CPU time
+	if times, err := p.Times(); err == nil {
+		info.CPUTime = times.User + times.System
+	}
+
 	// Get network statistics (not implemented - always returns 0)
 	info.NetSentKB, info.NetRecvKB = a.getNetworkStats(p)
 
@@ -420,6 +427,7 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 		}
 
 		name := strings.TrimSpace(info.Name)
+
 		if name == "" || info.Pid <= 0 {
 			continue
 		}
@@ -447,6 +455,9 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 			Command:     info.Cmdline,
 			WorkingDir:  info.Cwd,
 			Category:    "", // Will be set below
+			PID:         info.Pid,
+			CreateTime:  info.CreateTime,
+			CPUTime:     info.CPUTime,
 		}
 
 		// Determine if process is active
@@ -553,6 +564,9 @@ func (a *App) CollectAndSaveData() error {
 			Command:     info.Cmdline,
 			WorkingDir:  info.Cwd,
 			Category:    IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories),
+			PID:         info.Pid,
+			CreateTime:  info.CreateTime,
+			CPUTime:     info.CPUTime,
 		}
 
 		// Set active status based on thresholds
