@@ -54,115 +54,32 @@ cd process-tracker
 
 配置文件位于 `~/.process-tracker.yaml`，首次运行会自动创建默认配置。
 
-### 基础配置
+### 极简配置（仅3个参数！）
 
 ```yaml
-# 统计和显示配置
-statistics_granularity: detailed  # simple|detailed|full
-show_commands: true               # 显示完整命令
-show_working_dirs: true           # 显示工作目录
-use_smart_categories: true        # 使用智能分类
-max_command_length: 100           # 最大命令长度
-max_dir_length: 50               # 最大目录长度
+# 智能分类（可选，默认启用）
+enable_smart_categories: true  # 自动识别进程类型
 
-# 存储管理配置
+# 存储管理（自动轮转和压缩）
 storage:
-  max_file_size_mb: 100          # 最大文件大小(MB)
-  max_files: 10                  # 最大保留文件数
-  compress_after_days: 3         # 压缩天数
-  cleanup_after_days: 30         # 清理天数
-  auto_cleanup: true              # 自动清理
+  max_size_mb: 100    # 最大存储空间(MB)，自动轮转
+  keep_days: 7        # 保留天数，0=永久保留
+
+# Docker监控（可选，自动检测）
+docker:
+  enabled: true       # 启用Docker容器监控
 ```
 
-### 进程控制配置
+**零配置运行**：不需要配置文件，直接运行即可！所有参数都有智能默认值。
 
-```yaml
-# 进程控制选项
-process_control:
-  enabled: true|false             # 启用进程控制
-  enable_auto_restart: true|false # 启用自动重启
-  max_restarts: 3                 # 最大重启次数
-  restart_delay: 5s               # 重启延迟
-  check_interval: 10s             # 检查间隔
-```
+**智能特性**：
+- ✅ 自动文件轮转（每个文件 ~20MB）
+- ✅ 自动压缩旧文件（1天后）
+- ✅ 自动清理过期数据（根据keep_days）
+- ✅ 自动检测Docker环境
+- ✅ 智能进程分类
 
-### 资源配额配置
-
-```yaml
-# 资源配额管理
-resource_quota:
-  enabled: true|false             # 启用资源配额
-  check_interval: 30s             # 检查间隔
-  default_action: warn|throttle|stop|restart|notify  # 默认动作
-  max_violations: 5               # 最大违规次数
-  violation_window: 5m            # 违规窗口期
-```
-
-### 进程发现配置
-
-```yaml
-# 进程自动发现
-process_discovery:
-  enabled: true|false             # 启用进程发现
-  discovery_interval: 30s         # 发现间隔
-  auto_manage: true|false        # 自动管理
-  bio_tools_only: true|false     # 仅生物信息学工具
-  process_patterns: [pattern1, pattern2]    # 进程模式
-  exclude_patterns: [pattern1, pattern2]   # 排除模式
-  max_processes: 100              # 最大进程数
-  cpu_threshold: 80.0             # CPU阈值
-  memory_threshold_mb: 1024      # 内存阈值(MB)
-```
-
-### 生物信息学工具配置
-
-```yaml
-# 生物信息学工具管理
-bio_tools:
-  enabled: true                   # 启用生物信息学工具
-  auto_discovery: true            # 自动发现
-  custom_tools:                   # 自定义工具列表
-    - name: "tool-name"
-      executable: "/path/to/tool"
-      category: "alignment|assembly|analysis|visualization"
-      description: "Tool description"
-```
-
-### 监控配置
-
-```yaml
-# 统一监控配置
-monitoring:
-  enabled: true                   # 启用监控
-  interval: 1s                    # 监控间隔
-  health_check_interval: 30s      # 健康检查间隔
-  max_monitored_processes: 100    # 最大监控进程数
-  performance_history_size: 1000  # 性能历史大小
-  enable_detailed_io: false       # 启用详细IO监控
-  auto_restart_attempt: true       # 自动重启尝试
-  max_restart_attempts: 3         # 最大重启次数
-```
-
-### 健康检查配置
-
-```yaml
-# 健康检查规则
-health_check_rules:
-  - name: "cpu_rule"
-    description: "CPU使用率检查"
-    metric: "cpu"
-    operator: ">"
-    threshold: 80.0
-    severity: "warning"
-    enabled: true
-  - name: "memory_rule"
-    description: "内存使用检查"
-    metric: "memory"
-    operator: ">"
-    threshold: 1024.0
-    severity: "error"
-    enabled: true
-```
+> **设计理念**: 遵循"简单优先"原则，只保留最必要的配置。高级功能（如进程控制、资源配额等）请使用专门工具（systemd、supervisor等）配合使用。
 
 ## 📈 监控指标
 
@@ -170,8 +87,9 @@ health_check_rules:
 - **内存使用**: 进程内存占用(MB)
 - **线程数**: 进程线程数量
 - **磁盘I/O**: 读取和写入数据量(MB)
-- **网络流量**: 发送和接收数据量(KB)
-- **活跃状态**: 基于资源使用的活动检测
+- **网络流量**: ⚠️ 当前版本未实现进程级网络监控（数据始终为0）
+- **活跃状态**: 基于CPU和内存使用的活动检测
+- **Docker容器**: 容器级别的资源使用统计（需启用Docker监控）
 
 ## 🏗️ 架构特点
 

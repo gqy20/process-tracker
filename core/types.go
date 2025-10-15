@@ -7,24 +7,19 @@ import (
 )
 
 // Config represents the application configuration
+// Simplified to follow "simple first" principle
 type Config struct {
-	StatisticsGranularity string  // "simple", "detailed", "full"
-	ShowCommands         bool    // Whether to show full commands
-	ShowWorkingDirs      bool    // Whether to show working directories
-	UseSmartCategories   bool    // Whether to use smart application categorization
-	MaxCommandLength     int     // Maximum command length to display
-	MaxDirLength         int     // Maximum directory length to display
-	Storage              StorageConfig // Storage management configuration
-	Docker               DockerConfig  // Docker monitoring configuration
+	// Core settings (rarely need to change)
+	EnableSmartCategories bool          // Enable intelligent process categorization (default: true)
+	Storage               StorageConfig // Storage management configuration
+	Docker                DockerConfig  // Docker monitoring configuration
 }
 
 // StorageConfig represents storage management configuration
+// Simplified: only essential parameters with smart defaults
 type StorageConfig struct {
-	MaxFileSizeMB      int     `yaml:"max_file_size_mb"`      // Maximum file size in MB before rotation
-	MaxFiles           int     `yaml:"max_files"`              // Maximum number of files to keep
-	CompressAfterDays  int     `yaml:"compress_after_days"`   // Compress files after N days
-	CleanupAfterDays   int     `yaml:"cleanup_after_days"`    // Delete files after N days
-	AutoCleanup        bool    `yaml:"auto_cleanup"`          // Enable automatic cleanup
+	MaxSizeMB int `yaml:"max_size_mb"` // Maximum total storage size in MB (default: 100)
+	KeepDays  int `yaml:"keep_days"`   // Keep data for N days, 0=forever (default: 7)
 }
 
 // ResourceRecord represents a single resource usage record
@@ -46,21 +41,21 @@ type ResourceRecord struct {
 
 // ResourceStats represents calculated resource statistics
 type ResourceStats struct {
-	Name         string        `json:"name"`
-	Category     string        `json:"category"`
-	Command      string        `json:"command"`
-	WorkingDir   string        `json:"working_dir"`
-	ActiveTime   time.Duration `json:"active_time"`
-	CPUAvg       float64       `json:"cpu_avg"`
-	CPUMax       float64       `json:"cpu_max"`
-	MemoryAvg    float64       `json:"memory_avg"`
-	MemoryMax    float64       `json:"memory_max"`
-	DiskReadAvg  float64       `json:"disk_read_avg"`
-	DiskWriteAvg float64       `json:"disk_write_avg"`
-	NetSentAvg   float64       `json:"net_sent_avg"`
-	NetRecvAvg   float64       `json:"net_recv_avg"`
-	Samples      int           `json:"samples"`
-	ActiveSamples int          `json:"active_samples"`
+	Name          string        `json:"name"`
+	Category      string        `json:"category"`
+	Command       string        `json:"command"`
+	WorkingDir    string        `json:"working_dir"`
+	ActiveTime    time.Duration `json:"active_time"`
+	CPUAvg        float64       `json:"cpu_avg"`
+	CPUMax        float64       `json:"cpu_max"`
+	MemoryAvg     float64       `json:"memory_avg"`
+	MemoryMax     float64       `json:"memory_max"`
+	DiskReadAvg   float64       `json:"disk_read_avg"`
+	DiskWriteAvg  float64       `json:"disk_write_avg"`
+	NetSentAvg    float64       `json:"net_sent_avg"`
+	NetRecvAvg    float64       `json:"net_recv_avg"`
+	Samples       int           `json:"samples"`
+	ActiveSamples int           `json:"active_samples"`
 }
 
 // ActivityConfig represents activity detection configuration
@@ -71,32 +66,22 @@ type ActivityConfig struct {
 }
 
 // DockerConfig represents Docker monitoring configuration
+// Simplified: auto-detect Docker availability
 type DockerConfig struct {
-	Enabled  bool          `yaml:"enabled"`   // Enable Docker monitoring
-	Interval time.Duration `yaml:"interval"` // Collection interval
-	SocketPath string      `yaml:"socket_path"` // Docker socket path
+	Enabled bool `yaml:"enabled"` // Enable Docker monitoring (default: auto-detect)
 }
 
-// GetDefaultConfig returns default configuration
+// GetDefaultConfig returns default configuration with smart defaults
+// Following "simple first" principle - minimal configuration needed
 func GetDefaultConfig() Config {
 	return Config{
-		StatisticsGranularity: "simple",
-		ShowCommands:         false,
-		ShowWorkingDirs:      false,
-		UseSmartCategories:   true,
-		MaxCommandLength:     100,
-		MaxDirLength:         50,
+		EnableSmartCategories: true, // Enable intelligent categorization by default
 		Storage: StorageConfig{
-			MaxFileSizeMB:     50,     // 减小单文件大小限制
-			MaxFiles:          5,      // 减少保留文件数量
-			CompressAfterDays: 1,      // 更早压缩旧文件
-			CleanupAfterDays:  7,      // 更短的数据保留期
-			AutoCleanup:       true,
+			MaxSizeMB: 100, // 100MB total storage (auto-rotates)
+			KeepDays:  7,   // Keep 7 days of data
 		},
 		Docker: DockerConfig{
-			Enabled:    true,
-			Interval:   10 * time.Second,
-			SocketPath: "/var/run/docker.sock",
+			Enabled: true, // Auto-detect and enable if available
 		},
 	}
 }
@@ -113,11 +98,8 @@ func GetDefaultActivityConfig() ActivityConfig {
 // GetDefaultStorageConfig returns default storage configuration
 func GetDefaultStorageConfig() StorageConfig {
 	return StorageConfig{
-		MaxFileSizeMB:     100,
-		MaxFiles:          10,
-		CompressAfterDays: 3,
-		CleanupAfterDays:  30,
-		AutoCleanup:       true,
+		MaxSizeMB: 100, // 100MB total storage
+		KeepDays:  7,   // Keep 7 days
 	}
 }
 
@@ -169,65 +151,24 @@ func IdentifyApplication(name, command string, useSmartCategories bool) string {
 	return "other"
 }
 
-// ValidateStorageConfig validates storage configuration with optimized defaults
+// ValidateStorageConfig validates storage configuration (simplified)
 func ValidateStorageConfig(config StorageConfig) error {
-	if config.MaxFileSizeMB <= 0 {
-		return fmt.Errorf("max_file_size_mb must be positive")
+	if config.MaxSizeMB < 10 {
+		return fmt.Errorf("max_size_mb must be at least 10MB")
 	}
-	if config.MaxFileSizeMB > 500 {
-		return fmt.Errorf("max_file_size_mb too large (max 500MB), recommended: 50MB")
+	if config.MaxSizeMB > 10000 {
+		return fmt.Errorf("max_size_mb too large (max 10GB)")
 	}
-	if config.MaxFiles < 1 {
-		return fmt.Errorf("max_files must be at least 1")
+	if config.KeepDays < 0 {
+		return fmt.Errorf("keep_days must be non-negative (0 means forever)")
 	}
-	if config.MaxFiles > 50 {
-		return fmt.Errorf("max_files too large (max 50), recommended: 5")
-	}
-	if config.CompressAfterDays < 0 {
-		return fmt.Errorf("compress_after_days must be non-negative")
-	}
-	if config.CompressAfterDays > 30 {
-		return fmt.Errorf("compress_after_days too large (max 30), recommended: 1")
-	}
-	if config.CleanupAfterDays < 0 {
-		return fmt.Errorf("cleanup_after_days must be non-negative")
-	}
-	if config.CleanupAfterDays > 365 {
-		return fmt.Errorf("cleanup_after_days too large (max 365), recommended: 7")
-	}
-	if config.CleanupAfterDays > 0 && config.CleanupAfterDays < config.CompressAfterDays {
-		return fmt.Errorf("cleanup_after_days must be >= compress_after_days")
+	if config.KeepDays > 365 {
+		return fmt.Errorf("keep_days too large (max 365 days)")
 	}
 	return nil
 }
 
-// ValidateConfig validates the entire configuration
+// ValidateConfig validates the entire configuration (simplified)
 func ValidateConfig(config Config) error {
-	if err := ValidateStorageConfig(config.Storage); err != nil {
-		return fmt.Errorf("storage config invalid: %w", err)
-	}
-	
-	if config.StatisticsGranularity != "simple" && 
-	   config.StatisticsGranularity != "detailed" && 
-	   config.StatisticsGranularity != "full" {
-		return fmt.Errorf("statistics_granularity must be 'simple', 'detailed', or 'full'")
-	}
-	
-	if config.MaxCommandLength < 10 {
-		return fmt.Errorf("max_command_length too small (min 10)")
-	}
-	
-	if config.MaxCommandLength > 1000 {
-		return fmt.Errorf("max_command_length too large (max 1000)")
-	}
-	
-	if config.MaxDirLength < 10 {
-		return fmt.Errorf("max_dir_length too small (min 10)")
-	}
-	
-	if config.MaxDirLength > 500 {
-		return fmt.Errorf("max_dir_length too large (max 500)")
-	}
-	
-	return nil
+	return ValidateStorageConfig(config.Storage)
 }

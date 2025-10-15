@@ -88,10 +88,10 @@ func (mc *MonitoringCommands) StartMonitoring() error {
 	go mc.monitoringLoop()
 
 	fmt.Println("✅ 监控已启动")
-	
+
 	// Keep the main process running
 	select {} // This blocks forever until interrupted
-	
+
 	return nil // This line will never be reached
 }
 
@@ -99,7 +99,7 @@ func (mc *MonitoringCommands) StartMonitoring() error {
 func (mc *MonitoringCommands) monitoringLoop() {
 	ticker := time.NewTicker(mc.app.Interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:

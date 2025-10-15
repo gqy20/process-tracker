@@ -20,6 +20,7 @@ type FileInfo struct {
 }
 
 // StorageManager handles file rotation, compression, and cleanup
+// Uses simplified configuration with smart defaults
 type StorageManager struct {
 	basePath     string
 	baseName     string
@@ -32,13 +33,38 @@ type StorageManager struct {
 // NewStorageManager creates a new storage manager instance
 func NewStorageManager(basePath string, config StorageConfig) *StorageManager {
 	return &StorageManager{
-		basePath:    basePath,
-		baseName:    filepath.Base(basePath),
-		config:      config,
-		currentFile: nil,
-		currentSize: 0,
+		basePath:     basePath,
+		baseName:     filepath.Base(basePath),
+		config:       config,
+		currentFile:  nil,
+		currentSize:  0,
 		currentIndex: 0,
 	}
+}
+
+// getMaxFileSizeMB returns the maximum file size for rotation (derived from total size)
+func (sm *StorageManager) getMaxFileSizeMB() int {
+	// Use 1/5 of total size for each file, allowing for 5 rotation files
+	return sm.config.MaxSizeMB / 5
+}
+
+// getMaxFiles returns the maximum number of files to keep
+func (sm *StorageManager) getMaxFiles() int {
+	return 5 // Fixed at 5 for simplicity
+}
+
+// shouldCompress returns whether a file should be compressed based on age
+func (sm *StorageManager) shouldCompress(modTime time.Time) bool {
+	// Compress files older than 1 day
+	return time.Since(modTime) > 24*time.Hour
+}
+
+// shouldCleanup returns whether a file should be deleted based on age and config
+func (sm *StorageManager) shouldCleanup(modTime time.Time) bool {
+	if sm.config.KeepDays == 0 {
+		return false // 0 means keep forever
+	}
+	return time.Since(modTime) > time.Duration(sm.config.KeepDays)*24*time.Hour
 }
 
 // Initialize sets up the storage manager and checks existing files
@@ -49,14 +75,12 @@ func (sm *StorageManager) Initialize() error {
 		return fmt.Errorf("failed to get log files: %v", err)
 	}
 
-	// Clean up old files if auto cleanup is enabled
-	if sm.config.AutoCleanup {
-		if err := sm.cleanupOldFiles(files); err != nil {
-			return fmt.Errorf("failed to cleanup old files: %v", err)
-		}
+	// Clean up old files (always enabled with smart defaults)
+	if err := sm.cleanupOldFiles(files); err != nil {
+		return fmt.Errorf("failed to cleanup old files: %v", err)
 	}
 
-	// Compress old files if needed
+	// Compress old files (automatic based on age)
 	if err := sm.compressOldFiles(files); err != nil {
 		return fmt.Errorf("failed to compress old files: %v", err)
 	}
@@ -103,10 +127,11 @@ func (sm *StorageManager) Close() error {
 
 // shouldRotate checks if the current file needs rotation
 func (sm *StorageManager) shouldRotate() bool {
-	if sm.config.MaxFileSizeMB <= 0 {
+	maxFileSizeMB := sm.getMaxFileSizeMB()
+	if maxFileSizeMB <= 0 {
 		return false
 	}
-	maxBytes := int64(sm.config.MaxFileSizeMB) * 1024 * 1024
+	maxBytes := int64(maxFileSizeMB) * 1024 * 1024
 	return sm.currentSize >= maxBytes
 }
 
@@ -120,24 +145,42 @@ func (sm *StorageManager) rotate() error {
 
 	// Find the next available index
 	sm.currentIndex++
-	
-	// Simple cleanup: remove oldest if we have too many files (including the one we're about to create)
-	if sm.config.MaxFiles > 0 {
-		files, err := sm.getLogFiles()
-		if err != nil {
-			return err
-		}
-		
-		// If we have too many files, remove the oldest one
-		if len(files) >= sm.config.MaxFiles {
-			oldest := files[0]
-			for _, f := range files {
-				if f.ModTime.Before(oldest.ModTime) {
-					oldest = f
-				}
+
+	// Get current list of files
+	files, err := sm.getLogFiles()
+	if err != nil {
+		return err
+	}
+
+	// Compress old files (automatic based on age)
+	if err := sm.compressOldFiles(files); err != nil {
+		// Log error but don't fail rotation
+		fmt.Printf("Warning: failed to compress old files: %v\n", err)
+	}
+
+	// Cleanup old files (automatic based on retention policy)
+	if err := sm.cleanupOldFiles(files); err != nil {
+		// Log error but don't fail rotation
+		fmt.Printf("Warning: failed to cleanup old files: %v\n", err)
+	}
+
+	// Simple cleanup: remove oldest if we have too many files
+	maxFiles := sm.getMaxFiles()
+	// Refresh file list after compression
+	files, err = sm.getLogFiles()
+	if err != nil {
+		return err
+	}
+
+	// If we have too many files, remove the oldest one
+	if len(files) >= maxFiles {
+		oldest := files[0]
+		for _, f := range files {
+			if f.ModTime.Before(oldest.ModTime) {
+				oldest = f
 			}
-			os.Remove(oldest.Path)
 		}
+		os.Remove(oldest.Path)
 	}
 
 	// Open new current file
@@ -180,10 +223,10 @@ func (sm *StorageManager) GetLogFiles() ([]FileInfo, error) {
 // getLogFiles gets all log files (including compressed ones)
 func (sm *StorageManager) getLogFiles() ([]FileInfo, error) {
 	var files []FileInfo
-	
+
 	dir := filepath.Dir(sm.basePath)
 	base := sm.baseName
-	
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -238,10 +281,11 @@ func (sm *StorageManager) getLogFiles() ([]FileInfo, error) {
 }
 
 // determineCurrentIndex determines the current file index
+// Returns the highest index among all files (compressed or not) to avoid conflicts
 func (sm *StorageManager) determineCurrentIndex(files []FileInfo) int {
 	maxIndex := 0
 	for _, file := range files {
-		if file.Index > maxIndex && !file.IsCompressed {
+		if file.Index > maxIndex {
 			maxIndex = file.Index
 		}
 	}
@@ -252,55 +296,42 @@ func (sm *StorageManager) determineCurrentIndex(files []FileInfo) int {
 func (sm *StorageManager) getIndexedFilename(index int, compressed bool) string {
 	dir := filepath.Dir(sm.basePath)
 	base := sm.baseName
-	
+
 	if index == 0 {
 		return filepath.Join(dir, base)
 	}
-	
+
 	if compressed {
 		return filepath.Join(dir, fmt.Sprintf("%s.%d.gz", base, index))
 	}
 	return filepath.Join(dir, fmt.Sprintf("%s.%d", base, index))
 }
 
-// cleanupOldFiles removes files older than CleanupAfterDays
+// cleanupOldFiles removes files based on retention policy
 func (sm *StorageManager) cleanupOldFiles(files []FileInfo) error {
-	if sm.config.CleanupAfterDays <= 0 {
-		return nil
-	}
-
-	cutoff := time.Now().AddDate(0, 0, -sm.config.CleanupAfterDays)
-	
 	for _, file := range files {
-		if file.ModTime.Before(cutoff) {
+		if sm.shouldCleanup(file.ModTime) {
 			os.Remove(file.Path)
 		}
 	}
-	
 	return nil
 }
 
-// compressOldFiles compresses files older than CompressAfterDays
+// compressOldFiles compresses files based on age
 func (sm *StorageManager) compressOldFiles(files []FileInfo) error {
-	if sm.config.CompressAfterDays <= 0 {
-		return nil
-	}
-
-	cutoff := time.Now().AddDate(0, 0, -sm.config.CompressAfterDays)
-	
 	for _, file := range files {
 		if file.IsCompressed {
 			continue
 		}
-		
-		if file.ModTime.Before(cutoff) && file.Index > 0 { // Don't compress current file (index 0)
+
+		// Don't compress current file (index 0), only rotated files
+		if file.Index > 0 && sm.shouldCompress(file.ModTime) {
 			if err := sm.compressFile(file.Path); err != nil {
 				// Log error but continue with other files
 				fmt.Printf("Warning: failed to compress %s: %v\n", file.Path, err)
 			}
 		}
 	}
-	
 	return nil
 }
 

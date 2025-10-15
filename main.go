@@ -12,7 +12,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.8"
+var Version = "0.3.9"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -35,7 +35,7 @@ func main() {
 		granularity = flag.String("granularity", "simple", "统计粒度 (simple/detailed/full)")
 		help        = flag.Bool("help", false, "显示帮助信息")
 	)
-	
+
 	flag.Parse()
 
 	// Show help if requested

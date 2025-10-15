@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,18 +20,19 @@ type Manager struct {
 	file           *os.File
 	writer         *bufio.Writer
 	storageManager *StorageManager
-	useStorageMgr   bool
+	useStorageMgr  bool
 	storageConfig  StorageConfig
+	mu             sync.RWMutex // Protects buffer from concurrent access
 }
 
 // NewManager creates a new storage manager
 func NewManager(dataFile string, bufferSize int, useStorageManager bool, storageConfig StorageConfig) *Manager {
 	return &Manager{
-		dataFile:       dataFile,
-		bufferSize:     bufferSize,
-		buffer:         make([]ResourceRecord, 0, bufferSize),
-		useStorageMgr:   useStorageManager,
-		storageConfig:  storageConfig,
+		dataFile:      dataFile,
+		bufferSize:    bufferSize,
+		buffer:        make([]ResourceRecord, 0, bufferSize),
+		useStorageMgr: useStorageManager,
+		storageConfig: storageConfig,
 	}
 }
 
@@ -50,6 +52,9 @@ func (m *Manager) Initialize() error {
 
 // Close closes all file handles and flushes remaining data
 func (m *Manager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.writer != nil {
 		if err := m.flushBuffer(); err != nil {
 			return err
@@ -78,8 +83,11 @@ func (m *Manager) SaveRecords(records []ResourceRecord) error {
 
 // SaveRecord saves a single resource record
 func (m *Manager) SaveRecord(record ResourceRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.buffer = append(m.buffer, record)
-	
+
 	if len(m.buffer) >= m.bufferSize {
 		return m.flushBuffer()
 	}
@@ -101,7 +109,7 @@ func (m *Manager) DetectDataFormat(filePath string) (int, error) {
 
 	line := scanner.Text()
 	fields := strings.Split(line, ",")
-	
+
 	switch len(fields) {
 	case 7: // Original format: timestamp,name,cpu,memory,threads,disk_io,network_io
 		return 1, nil
@@ -120,14 +128,14 @@ func (m *Manager) DetectDataFormat(filePath string) (int, error) {
 func (m *Manager) ReadRecords(filePath string) ([]ResourceRecord, error) {
 	// Try main file first, then newest rotated file
 	filesToTry := []string{filePath}
-	
+
 	// Look for rotated files if main file doesn't exist
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		if matches, _ := filepath.Glob(filePath + ".*"); len(matches) > 0 {
 			filesToTry = append(filesToTry, matches...)
 		}
 	}
-	
+
 	// Try each file until we find one that works
 	var lastErr error
 	for _, file := range filesToTry {
@@ -137,7 +145,7 @@ func (m *Manager) ReadRecords(filePath string) ([]ResourceRecord, error) {
 			lastErr = err
 		}
 	}
-	
+
 	return nil, fmt.Errorf("no readable log files found: %v", lastErr)
 }
 
@@ -156,7 +164,7 @@ func (m *Manager) readSingleFile(filePath string) ([]ResourceRecord, error) {
 
 	var records []ResourceRecord
 	scanner := bufio.NewScanner(file)
-	
+
 	for scanner.Scan() {
 		record, err := m.parseRecord(scanner.Text(), format)
 		if err != nil {
@@ -176,7 +184,7 @@ func (m *Manager) parseRecord(line string, format int) (ResourceRecord, error) {
 	}
 
 	record := ResourceRecord{}
-	
+
 	// Parse timestamp (common to all formats)
 	timestamp, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
@@ -246,11 +254,11 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 		}
 
 		stat := ResourceStats{
-			Name:      name,
-			Category:  m.getMostCommonCategory(processRecords),
-			Command:   m.getMostCommonCommand(processRecords),
+			Name:       name,
+			Category:   m.getMostCommonCategory(processRecords),
+			Command:    m.getMostCommonCommand(processRecords),
 			WorkingDir: m.getMostCommonWorkingDir(processRecords),
-			Samples:   len(processRecords),
+			Samples:    len(processRecords),
 		}
 
 		// Calculate averages and maximums
@@ -265,7 +273,7 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 			totalDiskWrite += record.DiskWriteMB
 			totalNetSent += record.NetSentKB
 			totalNetRecv += record.NetRecvKB
-			
+
 			if record.CPUPercent > maxCPU {
 				maxCPU = record.CPUPercent
 			}
@@ -310,10 +318,10 @@ func (m *Manager) CleanOldData(keepDays int) error {
 
 	// Simple file cleanup for backward compatibility
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
-	
+
 	dir := filepath.Dir(m.dataFile)
 	base := filepath.Base(m.dataFile)
-	
+
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -379,6 +387,8 @@ func (m *Manager) initializeFile() error {
 	return nil
 }
 
+// flushBuffer writes buffered records to disk
+// NOTE: This method must be called while holding m.mu lock
 func (m *Manager) flushBuffer() error {
 	if len(m.buffer) == 0 {
 		return nil

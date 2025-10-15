@@ -29,10 +29,10 @@ type App struct {
 	DataFile string
 	Interval time.Duration
 	Config   Config
-	
+
 	// Storage manager
 	storage *Manager
-	
+
 	// Docker monitoring
 	dockerMonitor *DockerMonitor
 }
@@ -42,14 +42,14 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 	// Always use storage manager with optimized defaults
 	useStorageMgr := true // Force enable storage manager for rotation
 	storageMgr := NewManager(dataFile, 100, useStorageMgr, config.Storage)
-	
+
 	// Create Docker monitor
 	dockerMonitor, err := NewDockerMonitor(config)
 	if err != nil {
 		log.Printf("Warning: Failed to create Docker monitor: %v", err)
 		dockerMonitor = nil
 	}
-	
+
 	return &App{
 		DataFile:      dataFile,
 		Interval:      interval,
@@ -65,26 +65,24 @@ func (a *App) Initialize() error {
 	if err := ValidateConfig(a.Config); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
-	
+
 	// Initialize storage with rotation support
 	if err := a.storage.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
-	
-	// Log storage configuration
-	log.Printf("Storage manager initialized with: MaxFileSize=%dMB, MaxFiles=%d, CompressAfter=%ddays, CleanupAfter=%ddays",
-		a.Config.Storage.MaxFileSizeMB,
-		a.Config.Storage.MaxFiles,
-		a.Config.Storage.CompressAfterDays,
-		a.Config.Storage.CleanupAfterDays)
-	
+
+	// Log storage configuration (simplified)
+	log.Printf("Storage: max=%dMB total, keep=%d days, auto-rotation enabled",
+		a.Config.Storage.MaxSizeMB,
+		a.Config.Storage.KeepDays)
+
 	// Start Docker monitoring if enabled
 	if a.dockerMonitor != nil {
 		if err := a.dockerMonitor.Start(); err != nil {
 			log.Printf("Warning: Failed to start Docker monitoring: %v", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -96,7 +94,7 @@ func (a *App) CloseFile() error {
 			log.Printf("Warning: Failed to stop Docker monitoring: %v", err)
 		}
 	}
-	
+
 	return a.storage.Close()
 }
 
@@ -150,12 +148,18 @@ func (a *App) GetTotalRecords() (int, error) {
 }
 
 // GetProcessInfo gets detailed process information
+// Returns an error only if the process name cannot be retrieved (critical failure)
 func (a *App) GetProcessInfo(p *process.Process) (ProcessInfo, error) {
 	info := ProcessInfo{Pid: p.Pid}
 
-	if name, err := p.Name(); err == nil {
-		info.Name = name
+	// Process name is critical - return error if unavailable
+	name, err := p.Name()
+	if err != nil {
+		return ProcessInfo{}, err
 	}
+	info.Name = name
+
+	// Other fields are optional - ignore errors
 	if cmdline, err := p.Cmdline(); err == nil {
 		info.Cmdline = cmdline
 	}
@@ -178,16 +182,22 @@ func (a *App) GetProcessInfo(p *process.Process) (ProcessInfo, error) {
 		info.DiskWriteMB = float64(ioCounters.WriteBytes) / 1024 / 1024
 	}
 
-	// Get network statistics (estimated based on connections)
+	// Get network statistics (not implemented - always returns 0)
 	info.NetSentKB, info.NetRecvKB = a.getNetworkStats(p)
 
 	return info, nil
 }
 
 // getNetworkStats estimates network usage based on connection patterns
+// NOTE: Network monitoring is not implemented in the current version.
+// This function always returns 0.0 for both sent and received bytes.
+// Implementing accurate per-process network monitoring requires:
+// - Parsing /proc/net/tcp, /proc/net/udp for connection tracking
+// - Using eBPF or similar kernel-level monitoring
+// - Significant performance overhead
+// For network monitoring, consider using specialized tools like nethogs or iftop.
 func (a *App) getNetworkStats(p *process.Process) (float64, float64) {
-	// This is a simplified implementation
-	// In a real scenario, you might want to track network connections more accurately
+	// NOT IMPLEMENTED: Always returns zero
 	return 0.0, 0.0
 }
 
@@ -238,9 +248,9 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 		// Determine if process is active
 		activityConfig := GetDefaultActivityConfig()
 		record.IsActive = IsActive(record, activityConfig)
-		
+
 		// Set application category
-		record.Category = IdentifyApplication(name, info.Cmdline, a.Config.UseSmartCategories)
+		record.Category = IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories)
 
 		records = append(records, record)
 	}
@@ -309,9 +319,9 @@ func (a *App) CollectAndSaveData() error {
 	}
 
 	var records []ResourceRecord
-	
+
 	for _, p := range processes {
-		info, err := a.getProcessInfo(p)
+		info, err := a.GetProcessInfo(p)
 		if err != nil {
 			continue // Skip processes we can't get info for
 		}
@@ -338,7 +348,7 @@ func (a *App) CollectAndSaveData() error {
 			IsActive:    false, // Will be set below
 			Command:     info.Cmdline,
 			WorkingDir:  info.Cwd,
-			Category:    IdentifyApplication(name, info.Cmdline, a.Config.UseSmartCategories),
+			Category:    IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories),
 		}
 
 		// Set active status based on thresholds
@@ -360,54 +370,7 @@ func (a *App) CollectAndSaveData() error {
 	return nil
 }
 
-// getProcessInfo gets detailed information about a process
-func (a *App) getProcessInfo(p *process.Process) (ProcessInfo, error) {
-	info := ProcessInfo{Pid: p.Pid}
-	
-	// Get process name
-	if name, err := p.Name(); err == nil {
-		info.Name = name
-	} else {
-		return ProcessInfo{}, err
-	}
-	
-	// Get command line
-	if cmdline, err := p.Cmdline(); err == nil {
-		info.Cmdline = cmdline
-	}
-	
-	// Get working directory
-	if cwd, err := p.Cwd(); err == nil {
-		info.Cwd = cwd
-	}
-	
-	// Get CPU percentage
-	if cpuPercent, err := p.CPUPercent(); err == nil {
-		info.CPUPercent = cpuPercent
-	}
-	
-	// Get memory information
-	if memInfo, err := p.MemoryInfo(); err == nil {
-		info.MemoryMB = float64(memInfo.RSS) / 1024 / 1024 // Convert to MB
-	}
-	
-	// Get thread count
-	if threads, err := p.NumThreads(); err == nil {
-		info.Threads = threads
-	}
-	
-	// Get disk I/O (these might not be available on all systems)
-	if ioCounters, err := p.IOCounters(); err == nil {
-		info.DiskReadMB = float64(ioCounters.ReadBytes) / 1024 / 1024
-		info.DiskWriteMB = float64(ioCounters.WriteBytes) / 1024 / 1024
-	}
-	
-	// Get network statistics (estimated)
-	info.NetSentKB = 0.0
-	info.NetRecvKB = 0.0
-	
-	return info, nil
-}
+
 
 // collectDockerContainerRecords collects Docker container statistics
 func (a *App) collectDockerContainerRecords() []ResourceRecord {
@@ -428,7 +391,7 @@ func (a *App) collectDockerContainerRecords() []ResourceRecord {
 			Timestamp:   stat.Timestamp,
 			CPUPercent:  stat.CPUPercent,
 			MemoryMB:    float64(stat.MemoryUsage) / 1024 / 1024, // Convert to MB
-			Threads:     0, // Not available for containers
+			Threads:     0,                                       // Not available for containers
 			DiskReadMB:  float64(stat.BlockReadBytes) / 1024 / 1024,
 			DiskWriteMB: float64(stat.BlockWriteBytes) / 1024 / 1024,
 			NetSentKB:   float64(stat.NetworkTxBytes) / 1024,

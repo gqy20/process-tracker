@@ -23,8 +23,9 @@ func TestAppInitialization(t *testing.T) {
 	if app.Interval != time.Second {
 		t.Errorf("Expected interval 1s, got %v", app.Interval)
 	}
-	if !config.BioTools.Enabled {
-		t.Error("Config should have enabled features")
+	// Verify Docker monitoring is enabled by default
+	if !config.Docker.Enabled {
+		t.Error("Docker monitoring should be enabled by default")
 	}
 }
 

@@ -16,7 +16,7 @@ import (
 // LoadConfig loads configuration from file or returns default
 func LoadConfig(configPath string) (core.Config, error) {
 	config := core.GetDefaultConfig()
-	
+
 	expandedPath := os.ExpandEnv(configPath)
 	if _, err := os.Stat(expandedPath); os.IsNotExist(err) {
 		// No config file, create default one
@@ -148,8 +148,8 @@ func displaySimpleStats(stats []core.ResourceStats) {
 		activeTime := formatDuration(stat.ActiveTime)
 		memMB := fmt.Sprintf("%.1fMB", stat.MemoryAvg)
 		netKB := fmt.Sprintf("%.1fKB", stat.NetSentAvg+stat.NetRecvAvg)
-		
-		fmt.Printf("%-20s %10s %10s %10s\n", 
+
+		fmt.Printf("%-20s %10s %10s %10s\n",
 			truncateString(stat.Name, 20), activeTime, memMB, netKB)
 	}
 
@@ -167,7 +167,7 @@ func displayDetailedStats(stats []core.ResourceStats) {
 
 	fmt.Println("📊 进程使用时间统计 (详细)")
 	fmt.Println(strings.Repeat("─", 80))
-	fmt.Printf("%-25s %12s %12s %12s %12s %12s\n", 
+	fmt.Printf("%-25s %12s %12s %12s %12s %12s\n",
 		"进程名称", "活跃时间", "平均内存", "平均磁盘", "平均网络", "样本数")
 	fmt.Println(strings.Repeat("─", 80))
 
@@ -177,8 +177,8 @@ func displayDetailedStats(stats []core.ResourceStats) {
 		diskMB := fmt.Sprintf("%.1fMB", stat.DiskReadAvg+stat.DiskWriteAvg)
 		netKB := fmt.Sprintf("%.1fKB", stat.NetSentAvg+stat.NetRecvAvg)
 		samples := fmt.Sprintf("%d", stat.Samples)
-		
-		fmt.Printf("%-25s %12s %12s %12s %12s %12s\n", 
+
+		fmt.Printf("%-25s %12s %12s %12s %12s %12s\n",
 			truncateString(stat.Name, 25), activeTime, memMB, diskMB, netKB, samples)
 	}
 
@@ -196,13 +196,13 @@ func displayFullStats(stats []core.ResourceStats) {
 
 	fmt.Println("📊 进程使用时间统计 (完整)")
 	fmt.Println(strings.Repeat("═", 100))
-	
+
 	for i, stat := range stats {
 		if i >= 20 {
 			fmt.Printf("\n... 和其他 %d 个进程\n", len(stats)-20)
 			break
 		}
-		
+
 		fmt.Printf("进程: %s\n", stat.Name)
 		if stat.Command != "" {
 			fmt.Printf("  命令: %s\n", truncateString(stat.Command, 80))
@@ -223,7 +223,6 @@ func displayFullStats(stats []core.ResourceStats) {
 		fmt.Println(strings.Repeat("─", 80))
 	}
 }
-
 
 // formatDuration formats time duration in human readable format
 func formatDuration(d time.Duration) string {

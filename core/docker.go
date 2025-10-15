@@ -1,3 +1,5 @@
+//go:build !nodocker
+
 package core
 
 import (
@@ -15,29 +17,29 @@ import (
 
 // DockerStats represents Docker container statistics
 type DockerStats struct {
-	ContainerID    string  `json:"container_id"`
-	ContainerName  string  `json:"container_name"`
-	Image          string  `json:"image"`
-	Status         string  `json:"status"`
-	CPUPercent     float64 `json:"cpu_percent"`
-	MemoryUsage    uint64  `json:"memory_usage"`
-	MemoryLimit    uint64  `json:"memory_limit"`
-	MemoryPercent  float64 `json:"memory_percent"`
-	NetworkRxBytes uint64  `json:"network_rx_bytes"`
-	NetworkTxBytes uint64  `json:"network_tx_bytes"`
-	BlockReadBytes uint64  `json:"block_read_bytes"`
-	BlockWriteBytes uint64 `json:"block_write_bytes"`
-	Timestamp      time.Time `json:"timestamp"`
+	ContainerID     string    `json:"container_id"`
+	ContainerName   string    `json:"container_name"`
+	Image           string    `json:"image"`
+	Status          string    `json:"status"`
+	CPUPercent      float64   `json:"cpu_percent"`
+	MemoryUsage     uint64    `json:"memory_usage"`
+	MemoryLimit     uint64    `json:"memory_limit"`
+	MemoryPercent   float64   `json:"memory_percent"`
+	NetworkRxBytes  uint64    `json:"network_rx_bytes"`
+	NetworkTxBytes  uint64    `json:"network_tx_bytes"`
+	BlockReadBytes  uint64    `json:"block_read_bytes"`
+	BlockWriteBytes uint64    `json:"block_write_bytes"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 // DockerMonitor provides simple Docker container monitoring
 type DockerMonitor struct {
-	client     *client.Client
-	config     Config
-	isRunning  bool
-	stopChan   chan struct{}
-	mu         sync.RWMutex
-	lastStats  map[string]DockerStats
+	client    *client.Client
+	config    Config
+	isRunning bool
+	stopChan  chan struct{}
+	mu        sync.RWMutex
+	lastStats map[string]DockerStats
 }
 
 // NewDockerMonitor creates a new Docker monitor instance
@@ -88,7 +90,7 @@ func (dm *DockerMonitor) Start() error {
 	// Start background monitoring
 	go dm.monitorLoop()
 
-	log.Printf("Docker monitoring started with interval: %v", dm.config.Docker.Interval)
+	log.Println("Docker monitoring started (10s interval)")
 	return nil
 }
 
@@ -141,13 +143,13 @@ func (dm *DockerMonitor) GetContainerStats() ([]DockerStats, error) {
 		wg.Add(1)
 		go func(c types.Container) {
 			defer wg.Done()
-			
+
 			containerStats, err := dm.getSingleContainerStats(c)
 			if err != nil {
 				errorChan <- err
 				return
 			}
-			
+
 			statsChan <- containerStats
 		}(container)
 	}
@@ -202,7 +204,7 @@ func (dm *DockerMonitor) IsRunning() bool {
 func (dm *DockerMonitor) GetLastStats() map[string]DockerStats {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
-	
+
 	result := make(map[string]DockerStats)
 	for k, v := range dm.lastStats {
 		result[k] = v
@@ -213,7 +215,7 @@ func (dm *DockerMonitor) GetLastStats() map[string]DockerStats {
 // Private methods
 
 func (dm *DockerMonitor) monitorLoop() {
-	ticker := time.NewTicker(dm.config.Docker.Interval)
+	ticker := time.NewTicker(10 * time.Second) // Fixed 10s interval for simplicity
 	defer ticker.Stop()
 
 	for {
@@ -314,7 +316,7 @@ func (dm *DockerMonitor) updateLastStats(stats []DockerStats) {
 func calculateCPUPercent(stats *types.StatsJSON) float64 {
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-	
+
 	if systemDelta > 0.0 && cpuDelta > 0.0 {
 		return (cpuDelta / systemDelta) * float64(len(stats.CPUStats.CPUUsage.PercpuUsage)) * 100.0
 	}
