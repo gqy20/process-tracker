@@ -22,6 +22,9 @@ type DockerStats struct {
 	BlockReadBytes  uint64    `json:"block_read_bytes"`
 	BlockWriteBytes uint64    `json:"block_write_bytes"`
 	Timestamp       time.Time `json:"timestamp"`
+	PID             int32     `json:"pid"`             // Container main process PID on host
+	CreatedTime     int64     `json:"created_time"`    // Container creation time (Unix ms)
+	CPUTime         float64   `json:"cpu_time"`        // Cumulative CPU time in seconds
 }
 
 // DockerMonitor stub implementation when Docker support is disabled

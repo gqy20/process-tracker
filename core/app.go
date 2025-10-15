@@ -618,6 +618,9 @@ func (a *App) collectDockerContainerRecords() []ResourceRecord {
 			Command:     fmt.Sprintf("container:%s", stat.Image),
 			WorkingDir:  "",
 			Category:    "docker",
+			PID:         stat.PID,
+			CreateTime:  stat.CreatedTime,
+			CPUTime:     stat.CPUTime,
 		}
 		records = append(records, record)
 	}

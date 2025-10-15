@@ -237,6 +237,7 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 		// Calculate new statistics
 		pidSet := make(map[int32]bool)
 		var firstSeen, lastSeen time.Time
+		var earliestCreateTime int64
 		var totalCPUTime float64
 
 		for i, record := range processRecords {
@@ -251,6 +252,13 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 			}
 			if i == 0 || record.Timestamp.After(lastSeen) {
 				lastSeen = record.Timestamp
+			}
+
+			// Find earliest process start time (CreateTime is Unix milliseconds)
+			if record.CreateTime > 0 {
+				if earliestCreateTime == 0 || record.CreateTime < earliestCreateTime {
+					earliestCreateTime = record.CreateTime
+				}
 			}
 
 			// Sum CPU time
@@ -270,9 +278,14 @@ func (m *Manager) CalculateStats(records []ResourceRecord) []ResourceStats {
 		stat.FirstSeen = firstSeen
 		stat.LastSeen = lastSeen
 
-		// Calculate total uptime
+		// Calculate observation duration (monitoring time span)
 		if !firstSeen.IsZero() && !lastSeen.IsZero() {
 			stat.TotalUptime = lastSeen.Sub(firstSeen)
+		}
+
+		// Set process actual start time
+		if earliestCreateTime > 0 {
+			stat.ProcessStartTime = time.Unix(earliestCreateTime/1000, (earliestCreateTime%1000)*1000000)
 		}
 
 		// Calculate CPU time statistics

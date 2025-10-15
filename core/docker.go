@@ -30,6 +30,9 @@ type DockerStats struct {
 	BlockReadBytes  uint64    `json:"block_read_bytes"`
 	BlockWriteBytes uint64    `json:"block_write_bytes"`
 	Timestamp       time.Time `json:"timestamp"`
+	PID             int32     `json:"pid"`             // Container main process PID on host
+	CreatedTime     int64     `json:"created_time"`    // Container creation time (Unix ms)
+	CPUTime         float64   `json:"cpu_time"`        // Cumulative CPU time in seconds
 }
 
 // DockerMonitor provides simple Docker container monitoring
@@ -237,6 +240,12 @@ func (dm *DockerMonitor) getSingleContainerStats(container types.Container) (Doc
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Get container inspect info for PID and creation time
+	inspectData, err := dm.client.ContainerInspect(ctx, container.ID)
+	if err != nil {
+		log.Printf("Warning: Failed to inspect container %s: %v", container.ID[:12], err)
+	}
+
 	// Get container stats
 	statsResp, err := dm.client.ContainerStats(ctx, container.ID, false)
 	if err != nil {
@@ -264,6 +273,24 @@ func (dm *DockerMonitor) getSingleContainerStats(container types.Container) (Doc
 			containerName = containerName[1:]
 		}
 	}
+
+	// Get PID from inspect data
+	var pid int32
+	if inspectData.State != nil {
+		pid = int32(inspectData.State.Pid)
+	}
+
+	// Get container creation time (convert to Unix milliseconds)
+	var createdTime int64
+	if inspectData.Created != "" {
+		// Parse Docker's RFC3339Nano time format
+		if t, err := time.Parse(time.RFC3339Nano, inspectData.Created); err == nil {
+			createdTime = t.UnixMilli()
+		}
+	}
+
+	// Calculate cumulative CPU time from total usage (convert nanoseconds to seconds)
+	cpuTime := float64(dockerStats.CPUStats.CPUUsage.TotalUsage) / 1e9
 
 	// Get network stats (safe access)
 	var rxBytes, txBytes uint64 = 0, 0
@@ -301,6 +328,9 @@ func (dm *DockerMonitor) getSingleContainerStats(container types.Container) (Doc
 		BlockReadBytes:  readBytes,
 		BlockWriteBytes: writeBytes,
 		Timestamp:       time.Now(),
+		PID:             pid,
+		CreatedTime:     createdTime,
+		CPUTime:         cpuTime,
 	}, nil
 }
 

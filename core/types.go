@@ -59,12 +59,13 @@ type ResourceStats struct {
 	NetRecvAvg    float64       `json:"net_recv_avg"`
 	Samples       int           `json:"samples"`
 	ActiveSamples int           `json:"active_samples"`
-	PIDs          []int32       `json:"pids"`            // All observed PIDs
-	FirstSeen     time.Time     `json:"first_seen"`      // First observation time
-	LastSeen      time.Time     `json:"last_seen"`       // Last observation time
-	TotalUptime   time.Duration `json:"total_uptime"`    // Total running time
-	TotalCPUTime  time.Duration `json:"total_cpu_time"`  // Total CPU time consumed
-	AvgCPUTime    float64       `json:"avg_cpu_time"`    // Average CPU time per sample
+	PIDs             []int32       `json:"pids"`               // All observed PIDs
+	FirstSeen        time.Time     `json:"first_seen"`         // First observation time
+	LastSeen         time.Time     `json:"last_seen"`          // Last observation time
+	TotalUptime      time.Duration `json:"total_uptime"`       // Observation duration
+	ProcessStartTime time.Time     `json:"process_start_time"` // Process actual start time
+	TotalCPUTime     time.Duration `json:"total_cpu_time"`     // Total CPU time consumed
+	AvgCPUTime       float64       `json:"avg_cpu_time"`       // Average CPU time per sample
 }
 
 // ActivityConfig represents activity detection configuration
