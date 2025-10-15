@@ -6,7 +6,7 @@
 set -e
 
 PROJECT_NAME="process-tracker"
-VERSION="0.3.9"
+VERSION="0.4.0"
 RELEASE_DIR="releases/v${VERSION}"
 
 # Build flags for optimization

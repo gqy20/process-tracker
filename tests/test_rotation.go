@@ -11,11 +11,8 @@ import (
 func main() {
 	// Test storage rotation with large data
 	config := core.GetDefaultConfig()
-	config.Storage.MaxFileSizeMB = 1 // 1MB limit for quick testing
-	config.Storage.MaxFiles = 3
-	config.Storage.CompressAfterDays = 0
-	config.Storage.CleanupAfterDays = 1
-	config.Storage.AutoCleanup = true
+	config.Storage.MaxSizeMB = 1 // 1MB limit for quick testing
+	config.Storage.KeepDays = 1
 
 	// Use storage manager directly
 	storageMgr := core.NewManager("test-rotation.log", 10, true, config.Storage)

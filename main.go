@@ -13,7 +13,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.3.9"
+var Version = "0.4.0"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
