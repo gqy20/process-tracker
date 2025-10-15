@@ -5,6 +5,7 @@
 ## ✨ 主要特性
 
 - 🌐 **Web界面**: 实时可视化仪表板，图表展示CPU/内存趋势
+- 🔔 **智能告警**: 系统级/进程级资源监控，支持飞书/钉钉/企业微信通知
 - 🔍 **实时监控**: CPU、内存、磁盘I/O、Docker容器监控
 - 📊 **智能统计**: 支持简单、详细、完整三种统计粒度
 - 🗂️ **智能分类**: 自动识别应用程序类型（Java、Node.js、Python等）
@@ -57,7 +58,31 @@ cd process-tracker
 # 数据管理
 ./process-tracker export         # 导出数据
 ./process-tracker cleanup        # 清理旧数据
+
+# 告警测试
+./process-tracker test-alert     # 测试告警通知
 ```
+
+### 配置告警（可选）
+
+```bash
+# 1. 设置webhook环境变量
+export WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_TOKEN"
+
+# 2. 使用示例配置启动
+./process-tracker --config config-example.yaml start
+
+# 3. 测试告警
+./process-tracker --config config-example.yaml test-alert
+```
+
+**告警功能**：
+- ✅ 系统CPU/内存使用率监控
+- ✅ 单个进程异常检测
+- ✅ 支持飞书/钉钉/企业微信
+- ✅ 智能告警抑制避免风暴
+
+详细配置请参考 [ALERTS.md](ALERTS.md)
 
 ## ⚙️ 配置
 
@@ -191,6 +216,7 @@ releases/v0.3.7/
 
 ## 📚 文档
 
+- [告警配置指南](ALERTS.md) - 告警功能完整说明
 - [Web快速开始](docs/QUICKSTART.md) - Web界面使用指南
 - [功能详解](docs/FEATURES.md) - CPU归一化、内存百分比等功能说明
 - [开发指南](docs/development.md) - 贡献代码前请阅读

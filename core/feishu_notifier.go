@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -22,6 +23,13 @@ func NewFeishuNotifier(config map[string]interface{}) *FeishuNotifier {
 
 	if webhookURL, ok := config["webhook_url"].(string); ok {
 		fn.WebhookURL = webhookURL
+	}
+
+	// Support environment variable expansion
+	if fn.WebhookURL == "${WEBHOOK_URL}" || fn.WebhookURL == "" {
+		if envURL := os.Getenv("WEBHOOK_URL"); envURL != "" {
+			fn.WebhookURL = envURL
+		}
 	}
 
 	return fn

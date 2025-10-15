@@ -9,13 +9,14 @@ import (
 
 // AlertRule defines an alert rule
 type AlertRule struct {
-	Name      string   `yaml:"name"`
-	Metric    string   `yaml:"metric"`     // cpu_percent, memory_mb
-	Threshold float64  `yaml:"threshold"`  // Threshold value
-	Duration  int      `yaml:"duration"`   // Duration in seconds before alerting
-	Channels  []string `yaml:"channels"`   // List of notifier channels
-	Process   string   `yaml:"process"`    // Optional: specific process name
-	Enabled   bool     `yaml:"enabled"`    // Whether the rule is enabled
+	Name        string   `yaml:"name"`
+	Metric      string   `yaml:"metric"`       // cpu_percent, memory_mb
+	Threshold   float64  `yaml:"threshold"`    // Threshold value
+	Duration    int      `yaml:"duration"`     // Duration in seconds before alerting
+	Channels    []string `yaml:"channels"`     // List of notifier channels
+	Process     string   `yaml:"process"`      // Optional: specific process name
+	Aggregation string   `yaml:"aggregation"`  // Aggregation method: max, avg, sum (default: avg)
+	Enabled     bool     `yaml:"enabled"`      // Whether the rule is enabled
 }
 
 // AlertState tracks the state of an alert
@@ -95,7 +96,16 @@ func (am *AlertManager) Evaluate(records []ResourceRecord) {
 		}
 
 		// Get metric value
-		value := am.getMetricValue(records, rule.Metric, rule.Process)
+		value := am.getMetricValue(records, rule.Metric, rule.Process, rule.Aggregation)
+		
+		// Debug log every 10 evaluations to avoid spam
+		aggType := rule.Aggregation
+		if aggType == "" {
+			aggType = "avg"
+		}
+		if am.states[rule.Name] == nil || am.states[rule.Name].Count%10 == 0 {
+			log.Printf("告警评估: %s, 当前值=%.2f (聚合:%s), 阈值=%.2f", rule.Name, value, aggType, rule.Threshold)
+		}
 
 		// Check threshold
 		if value > rule.Threshold {
@@ -106,10 +116,44 @@ func (am *AlertManager) Evaluate(records []ResourceRecord) {
 	}
 }
 
-// getMetricValue calculates metric value from records
-func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, processName string) float64 {
+// getMetricValue calculates metric value from records based on aggregation method
+func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, processName, aggregation string) float64 {
 	var total float64
+	var max float64
 	var count int
+
+	// Handle system-level metrics (ignore aggregation and processName)
+	if metric == "system_cpu_percent" {
+		// Calculate total CPU usage as percentage of system capacity
+		var totalCPU float64
+		for _, r := range records {
+			totalCPU += r.CPUPercent
+		}
+		cores := getTotalCPUCores()
+		if cores == 0 {
+			return 0
+		}
+		// Convert to percentage: (sum of all process CPU%) / (cores * 100) * 100
+		return (totalCPU / float64(cores))
+	}
+
+	if metric == "system_memory_percent" {
+		// Calculate total memory usage as percentage of system memory
+		var totalMemMB float64
+		for _, r := range records {
+			totalMemMB += r.MemoryMB
+		}
+		systemMemMB := getTotalMemoryMB()
+		if systemMemMB == 0 {
+			return 0
+		}
+		return (totalMemMB / systemMemMB) * 100
+	}
+
+	// Default to avg if not specified
+	if aggregation == "" {
+		aggregation = "avg"
+	}
 
 	for _, r := range records {
 		// Filter by process name if specified
@@ -117,13 +161,22 @@ func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, process
 			continue
 		}
 
+		var value float64
 		switch metric {
 		case "cpu_percent":
-			total += r.CPUPercent
-			count++
+			value = r.CPUPercent
 		case "memory_mb":
-			total += r.MemoryMB
-			count++
+			value = r.MemoryMB
+		default:
+			continue
+		}
+
+		total += value
+		count++
+		
+		// Track maximum value
+		if value > max {
+			max = value
 		}
 	}
 
@@ -131,7 +184,17 @@ func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, process
 		return 0
 	}
 
-	return total / float64(count)
+	// Return based on aggregation method
+	switch aggregation {
+	case "max":
+		return max
+	case "sum":
+		return total
+	case "avg":
+		return total / float64(count)
+	default:
+		return total / float64(count)
+	}
 }
 
 // handleAlert handles an alert condition

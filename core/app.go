@@ -48,6 +48,9 @@ type App struct {
 
 	// Docker monitoring
 	dockerMonitor *DockerMonitor
+
+	// Alert manager
+	alertManager *AlertManager
 }
 
 // NewApp creates a new application instance
@@ -63,12 +66,20 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		dockerMonitor = nil
 	}
 
+	// Create Alert manager if alerts are enabled
+	var alertManager *AlertManager
+	if config.Alerts.Enabled {
+		alertManager = NewAlertManager(config.Alerts, config.Notifiers)
+		log.Printf("Alert manager initialized with %d rules", len(config.Alerts.Rules))
+	}
+
 	return &App{
 		DataFile:      dataFile,
 		Interval:      interval,
 		Config:        config,
 		storage:       storageMgr,
 		dockerMonitor: dockerMonitor,
+		alertManager:  alertManager,
 	}
 }
 
@@ -688,7 +699,14 @@ func (a *App) CollectAndSaveData() error {
 
 	// Save all records
 	if len(records) > 0 {
-		return a.storage.SaveRecords(records)
+		if err := a.storage.SaveRecords(records); err != nil {
+			return err
+		}
+	}
+
+	// Evaluate alert rules if alert manager is enabled
+	if a.alertManager != nil && len(records) > 0 {
+		a.alertManager.Evaluate(records)
 	}
 
 	return nil

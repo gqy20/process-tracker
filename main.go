@@ -209,6 +209,27 @@ func main() {
 			log.Fatalf("清除数据失败: %v", err)
 		}
 
+	case "test-alert":
+		// Test alert notification
+		testFlags := flag.NewFlagSet("test-alert", flag.ExitOnError)
+		channel := testFlags.String("channel", "feishu", "通知渠道: feishu/dingtalk/wechat")
+		testFlags.Parse(flag.Args()[1:])
+
+		if err := app.Initialize(); err != nil {
+			log.Fatalf("初始化失败: %v", err)
+		}
+
+		if app.App.Config.Alerts.Enabled {
+			fmt.Printf("🔔 测试告警通知 (渠道: %s)...\n", *channel)
+			// Access the alertManager through a public method
+			if err := testAlertNotification(app.App, *channel); err != nil {
+				log.Fatalf("❌ 测试失败: %v", err)
+			}
+			fmt.Println("✅ 测试通知已发送")
+		} else {
+			fmt.Println("⚠️  告警功能未启用，请在配置文件中启用 alerts.enabled")
+		}
+
 	default:
 		fmt.Printf("❌ 未知命令: %s\n\n", command)
 		cmd.PrintUsage(Version)
@@ -296,6 +317,18 @@ func handleStatus(daemon *core.DaemonManager) {
 	} else {
 		fmt.Printf("状态: 🔴 已停止\n")
 	}
+}
+
+// testAlertNotification tests alert notification
+func testAlertNotification(app *core.App, channel string) error {
+	// Use reflection or add a public method to access alertManager
+	// For now, we'll create a temporary alert manager with the same config
+	if !app.Config.Alerts.Enabled {
+		return fmt.Errorf("alerts not enabled in configuration")
+	}
+	
+	testManager := core.NewAlertManager(app.Config.Alerts, app.Config.Notifiers)
+	return testManager.TestNotifier(channel)
 }
 
 // handleRestart handles the restart command
