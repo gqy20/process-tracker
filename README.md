@@ -82,7 +82,7 @@ export WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_TOKEN"
 - ✅ 支持飞书/钉钉/企业微信
 - ✅ 智能告警抑制避免风暴
 
-详细配置请参考 [ALERTS.md](ALERTS.md)
+详细配置请参考 [ALERTS.md](docs/ALERTS.md)
 
 ## ⚙️ 配置
 
@@ -216,7 +216,7 @@ releases/v0.3.7/
 
 ## 📚 文档
 
-- [告警配置指南](ALERTS.md) - 告警功能完整说明
+- [告警配置指南](docs/ALERTS.md) - 告警功能完整说明
 - [Web快速开始](docs/QUICKSTART.md) - Web界面使用指南
 - [功能详解](docs/FEATURES.md) - CPU归一化、内存百分比等功能说明
 - [开发指南](docs/development.md) - 贡献代码前请阅读
