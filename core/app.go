@@ -3,10 +3,21 @@ package core
 import (
 	"fmt"
 	"log"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
+)
+
+var (
+	cachedTotalMemoryMB float64
+	cachedTotalCPUCores int
+	memoryMu            sync.RWMutex
+	cpuMu               sync.RWMutex
 )
 
 // ProcessInfo represents process information for monitoring
@@ -78,6 +89,9 @@ func (a *App) Initialize() error {
 		a.Config.Storage.MaxSizeMB,
 		a.Config.Storage.KeepDays)
 
+	// Initialize total memory cache
+	getTotalMemoryMB()
+
 	// Start Docker monitoring if enabled
 	if a.dockerMonitor != nil {
 		if err := a.dockerMonitor.Start(); err != nil {
@@ -86,6 +100,82 @@ func (a *App) Initialize() error {
 	}
 
 	return nil
+}
+
+// getTotalMemoryMB returns the total system memory in MB (cached)
+func getTotalMemoryMB() float64 {
+	memoryMu.RLock()
+	if cachedTotalMemoryMB > 0 {
+		memoryMu.RUnlock()
+		return cachedTotalMemoryMB
+	}
+	memoryMu.RUnlock()
+
+	memoryMu.Lock()
+	defer memoryMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if cachedTotalMemoryMB > 0 {
+		return cachedTotalMemoryMB
+	}
+
+	// Get system memory info
+	v, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("Warning: Failed to get system memory: %v", err)
+		return 0
+	}
+
+	cachedTotalMemoryMB = float64(v.Total) / 1024 / 1024
+	log.Printf("System total memory: %.2f MB", cachedTotalMemoryMB)
+	
+	return cachedTotalMemoryMB
+}
+
+// calculateMemoryPercent calculates memory usage as percentage of system total
+func calculateMemoryPercent(memoryMB float64) float64 {
+	totalMB := getTotalMemoryMB()
+	if totalMB == 0 {
+		return 0
+	}
+	return (memoryMB / totalMB) * 100
+}
+
+// getTotalCPUCores returns the total number of CPU cores (cached)
+func getTotalCPUCores() int {
+	// Return cached value if available
+	cpuMu.RLock()
+	if cachedTotalCPUCores > 0 {
+		defer cpuMu.RUnlock()
+		return cachedTotalCPUCores
+	}
+	cpuMu.RUnlock()
+
+	// Get CPU cores count and cache it
+	cpuMu.Lock()
+	defer cpuMu.Unlock()
+
+	// Try gopsutil first (logical cores)
+	if counts, err := cpu.Counts(true); err == nil && counts > 0 {
+		cachedTotalCPUCores = counts
+		log.Printf("System total CPU cores: %d", cachedTotalCPUCores)
+		return cachedTotalCPUCores
+	}
+
+	// Fallback to runtime.NumCPU
+	cachedTotalCPUCores = runtime.NumCPU()
+	log.Printf("System total CPU cores (from runtime): %d", cachedTotalCPUCores)
+	return cachedTotalCPUCores
+}
+
+// calculateCPUPercentNormalized calculates CPU usage as percentage of total system CPU
+// For example: 100% on single core = 100/72 = 1.39% on 72-core system
+func calculateCPUPercentNormalized(cpuPercent float64) float64 {
+	totalCores := getTotalCPUCores()
+	if totalCores == 0 {
+		return 0
+	}
+	return cpuPercent / float64(totalCores)
 }
 
 // CloseFile closes file handles and cleans up resources
@@ -442,22 +532,24 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 
 		// Create resource record
 		record := ResourceRecord{
-			Name:        name,
-			Timestamp:   time.Now(),
-			CPUPercent:  info.CPUPercent,
-			MemoryMB:    info.MemoryMB,
-			Threads:     info.Threads,
-			DiskReadMB:  info.DiskReadMB,
-			DiskWriteMB: info.DiskWriteMB,
-			NetSentKB:   info.NetSentKB,
-			NetRecvKB:   info.NetRecvKB,
-			IsActive:    false, // Will be set below
-			Command:     info.Cmdline,
-			WorkingDir:  info.Cwd,
-			Category:    "", // Will be set below
-			PID:         info.Pid,
-			CreateTime:  info.CreateTime,
-			CPUTime:     info.CPUTime,
+			Name:                 name,
+			Timestamp:            time.Now(),
+			CPUPercent:           info.CPUPercent,
+			CPUPercentNormalized: calculateCPUPercentNormalized(info.CPUPercent),
+			MemoryMB:             info.MemoryMB,
+			MemoryPercent:        calculateMemoryPercent(info.MemoryMB),
+			Threads:              info.Threads,
+			DiskReadMB:           info.DiskReadMB,
+			DiskWriteMB:          info.DiskWriteMB,
+			NetSentKB:            info.NetSentKB,
+			NetRecvKB:            info.NetRecvKB,
+			IsActive:             false, // Will be set below
+			Command:              info.Cmdline,
+			WorkingDir:           info.Cwd,
+			Category:             "", // Will be set below
+			PID:                  info.Pid,
+			CreateTime:           info.CreateTime,
+			CPUTime:              info.CPUTime,
 		}
 
 		// Determine if process is active
@@ -476,12 +568,14 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 // isSystemProcess checks if a process is a system process
 func (a *App) isSystemProcess(name string) bool {
 	name = strings.ToLower(name)
+	// Only filter kernel threads and core system daemons
+	// DO NOT filter user shells (bash, sh, zsh) or user programs (ssh, etc)
 	systemPrefixes := []string{
 		"kworker", "ksoftirqd", "migration", "rcu_", "watchdog",
-		"khugepaged", "kthreadd", "kswapd", "pool", "cpuhp",
-		"irq", "migration", "md", "jbd2", "ext4", "xfs",
-		"loop", "sr_", "ata_", "scsi_", "usb", "pci",
-		"idle_inject", "systemd", "dbus-daemon", "containerd-shim",
+		"khugepaged", "kthreadd", "kswapd", "cpuhp",
+		"irq/", "kdevtmpfs", "netns", "kauditd",
+		"khungtaskd", "oom_reaper", "writeback", "kcompactd",
+		"md", "jbd2", "ext4-", "xfs-",
 	}
 
 	for _, prefix := range systemPrefixes {
@@ -490,11 +584,10 @@ func (a *App) isSystemProcess(name string) bool {
 		}
 	}
 
+	// Only truly low-level system processes
 	systemProcesses := map[string]bool{
-		"system": true,
-		"init":   true,
-		"bash":   true,
-		"ssh":    true,
+		"systemd": true,  // init system (too many instances)
+		"init":    true,  // legacy init
 	}
 
 	return systemProcesses[name]
@@ -534,15 +627,20 @@ func (a *App) CollectAndSaveData() error {
 	}
 
 	var records []ResourceRecord
+	totalProcesses := len(processes)
+	filteredCount := 0
+	errorCount := 0
 
 	for _, p := range processes {
 		info, err := a.GetProcessInfo(p)
 		if err != nil {
+			errorCount++
 			continue // Skip processes we can't get info for
 		}
 
 		// Skip system processes
 		if a.isSystemProcess(info.Name) {
+			filteredCount++
 			continue
 		}
 
@@ -551,22 +649,24 @@ func (a *App) CollectAndSaveData() error {
 
 		// Create resource record
 		record := ResourceRecord{
-			Name:        name,
-			Timestamp:   time.Now(),
-			CPUPercent:  info.CPUPercent,
-			MemoryMB:    info.MemoryMB,
-			Threads:     info.Threads,
-			DiskReadMB:  info.DiskReadMB,
-			DiskWriteMB: info.DiskWriteMB,
-			NetSentKB:   info.NetSentKB,
-			NetRecvKB:   info.NetRecvKB,
-			IsActive:    false, // Will be set below
-			Command:     info.Cmdline,
-			WorkingDir:  info.Cwd,
-			Category:    IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories),
-			PID:         info.Pid,
-			CreateTime:  info.CreateTime,
-			CPUTime:     info.CPUTime,
+			Name:                 name,
+			Timestamp:            time.Now(),
+			CPUPercent:           info.CPUPercent,
+			CPUPercentNormalized: calculateCPUPercentNormalized(info.CPUPercent),
+			MemoryMB:             info.MemoryMB,
+			MemoryPercent:        calculateMemoryPercent(info.MemoryMB),
+			Threads:              info.Threads,
+			DiskReadMB:           info.DiskReadMB,
+			DiskWriteMB:          info.DiskWriteMB,
+			NetSentKB:            info.NetSentKB,
+			NetRecvKB:            info.NetRecvKB,
+			IsActive:             false, // Will be set below
+			Command:              info.Cmdline,
+			WorkingDir:           info.Cwd,
+			Category:             IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories),
+			PID:                  info.Pid,
+			CreateTime:           info.CreateTime,
+			CPUTime:              info.CPUTime,
 		}
 
 		// Set active status based on thresholds
@@ -579,6 +679,12 @@ func (a *App) CollectAndSaveData() error {
 	// Add Docker container records
 	dockerRecords := a.collectDockerContainerRecords()
 	records = append(records, dockerRecords...)
+
+	// Log collection statistics (every 12 cycles, i.e., every minute at 5s interval)
+	if len(records) == 0 || len(records) < 10 {
+		log.Printf("⚠️  Collected %d processes (total=%d, filtered=%d, errors=%d)", 
+			len(records), totalProcesses, filteredCount, errorCount)
+	}
 
 	// Save all records
 	if len(records) > 0 {
@@ -604,23 +710,26 @@ func (a *App) collectDockerContainerRecords() []ResourceRecord {
 
 	var records []ResourceRecord
 	for _, stat := range stats {
+		memoryMB := float64(stat.MemoryUsage) / 1024 / 1024 // Convert to MB
 		record := ResourceRecord{
-			Name:        fmt.Sprintf("docker:%s", stat.ContainerName),
-			Timestamp:   stat.Timestamp,
-			CPUPercent:  stat.CPUPercent,
-			MemoryMB:    float64(stat.MemoryUsage) / 1024 / 1024, // Convert to MB
-			Threads:     0,                                       // Not available for containers
-			DiskReadMB:  float64(stat.BlockReadBytes) / 1024 / 1024,
-			DiskWriteMB: float64(stat.BlockWriteBytes) / 1024 / 1024,
-			NetSentKB:   float64(stat.NetworkTxBytes) / 1024,
-			NetRecvKB:   float64(stat.NetworkRxBytes) / 1024,
-			IsActive:    stat.CPUPercent > 1.0 || stat.MemoryPercent > 1.0,
-			Command:     fmt.Sprintf("container:%s", stat.Image),
-			WorkingDir:  "",
-			Category:    "docker",
-			PID:         stat.PID,
-			CreateTime:  stat.CreatedTime,
-			CPUTime:     stat.CPUTime,
+			Name:                 fmt.Sprintf("docker:%s", stat.ContainerName),
+			Timestamp:            stat.Timestamp,
+			CPUPercent:           stat.CPUPercent,
+			CPUPercentNormalized: calculateCPUPercentNormalized(stat.CPUPercent),
+			MemoryMB:             memoryMB,
+			MemoryPercent:        calculateMemoryPercent(memoryMB),
+			Threads:              0, // Not available for containers
+			DiskReadMB:           float64(stat.BlockReadBytes) / 1024 / 1024,
+			DiskWriteMB:          float64(stat.BlockWriteBytes) / 1024 / 1024,
+			NetSentKB:            float64(stat.NetworkTxBytes) / 1024,
+			NetRecvKB:            float64(stat.NetworkRxBytes) / 1024,
+			IsActive:             stat.CPUPercent > 1.0 || stat.MemoryPercent > 1.0,
+			Command:              fmt.Sprintf("container:%s", stat.Image),
+			WorkingDir:           "",
+			Category:             "docker",
+			PID:                  stat.PID,
+			CreateTime:           stat.CreatedTime,
+			CPUTime:              stat.CPUTime,
 		}
 		records = append(records, record)
 	}

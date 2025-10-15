@@ -141,35 +141,61 @@ func (m *Manager) readSingleFile(filePath string) ([]ResourceRecord, error) {
 	return records, nil
 }
 
-// parseRecord parses a single line into ResourceRecord (Format v5 - 16 fields)
+// parseRecord parses a single line into ResourceRecord
+// Supports v7 (18 fields with CPUPercentNormalized), v6 (17 fields with MemoryPercent), and v5 (16 fields) formats
 func (m *Manager) parseRecord(line string) (ResourceRecord, error) {
 	fields := strings.Split(line, ",")
-	if len(fields) != 16 {
-		return ResourceRecord{}, fmt.Errorf("invalid format: expected 16 fields, got %d", len(fields))
+	
+	// Support v5 (16), v6 (17), and v7 (18) formats
+	if len(fields) != 16 && len(fields) != 17 && len(fields) != 18 {
+		return ResourceRecord{}, fmt.Errorf("invalid format: expected 16, 17, or 18 fields, got %d", len(fields))
 	}
 
 	record := ResourceRecord{}
 
-	// Parse all fields directly (no version checking)
+	// Parse common fields (timestamp, name, cpu_percent)
 	timestamp, _ := strconv.ParseInt(fields[0], 10, 64)
 	record.Timestamp = time.Unix(timestamp, 0)
 	record.Name = fields[1]
 	record.CPUPercent, _ = strconv.ParseFloat(fields[2], 64)
-	record.MemoryMB, _ = strconv.ParseFloat(fields[3], 64)
-	threads, _ := strconv.ParseInt(fields[4], 10, 32)
+	
+	// Handle different format versions
+	var fieldOffset int
+	if len(fields) == 18 {
+		// v7 format: includes CPUPercentNormalized at position 3, MemoryPercent at position 5
+		record.CPUPercentNormalized, _ = strconv.ParseFloat(fields[3], 64)
+		record.MemoryMB, _ = strconv.ParseFloat(fields[4], 64)
+		record.MemoryPercent, _ = strconv.ParseFloat(fields[5], 64)
+		fieldOffset = 2 // Skip both new fields in old format
+	} else if len(fields) == 17 {
+		// v6 format: includes MemoryPercent at position 4, no CPUPercentNormalized
+		record.CPUPercentNormalized = 0 // Will be calculated if needed
+		record.MemoryMB, _ = strconv.ParseFloat(fields[3], 64)
+		record.MemoryPercent, _ = strconv.ParseFloat(fields[4], 64)
+		fieldOffset = 1
+	} else {
+		// v5 format: no MemoryPercent or CPUPercentNormalized
+		record.CPUPercentNormalized = 0
+		record.MemoryMB, _ = strconv.ParseFloat(fields[3], 64)
+		record.MemoryPercent = 0
+		fieldOffset = 0
+	}
+	
+	// Parse remaining fields with offset (starting from threads)
+	threads, _ := strconv.ParseInt(fields[4+fieldOffset], 10, 32)
 	record.Threads = int32(threads)
-	record.DiskReadMB, _ = strconv.ParseFloat(fields[5], 64)
-	record.DiskWriteMB, _ = strconv.ParseFloat(fields[6], 64)
-	record.NetSentKB, _ = strconv.ParseFloat(fields[7], 64)
-	record.NetRecvKB, _ = strconv.ParseFloat(fields[8], 64)
-	record.IsActive, _ = strconv.ParseBool(fields[9])
-	record.Command = fields[10]
-	record.WorkingDir = fields[11]
-	record.Category = fields[12]
-	pid, _ := strconv.ParseInt(fields[13], 10, 32)
+	record.DiskReadMB, _ = strconv.ParseFloat(fields[5+fieldOffset], 64)
+	record.DiskWriteMB, _ = strconv.ParseFloat(fields[6+fieldOffset], 64)
+	record.NetSentKB, _ = strconv.ParseFloat(fields[7+fieldOffset], 64)
+	record.NetRecvKB, _ = strconv.ParseFloat(fields[8+fieldOffset], 64)
+	record.IsActive, _ = strconv.ParseBool(fields[9+fieldOffset])
+	record.Command = fields[10+fieldOffset]
+	record.WorkingDir = fields[11+fieldOffset]
+	record.Category = fields[12+fieldOffset]
+	pid, _ := strconv.ParseInt(fields[13+fieldOffset], 10, 32)
 	record.PID = int32(pid)
-	record.CreateTime, _ = strconv.ParseInt(fields[14], 10, 64)
-	record.CPUTime, _ = strconv.ParseFloat(fields[15], 64)
+	record.CreateTime, _ = strconv.ParseInt(fields[14+fieldOffset], 10, 64)
+	record.CPUTime, _ = strconv.ParseFloat(fields[15+fieldOffset], 64)
 
 	return record, nil
 }
@@ -425,7 +451,9 @@ func (m *Manager) formatRecord(record ResourceRecord) string {
 		strconv.FormatInt(record.Timestamp.Unix(), 10),
 		record.Name,
 		strconv.FormatFloat(record.CPUPercent, 'f', 2, 64),
+		strconv.FormatFloat(record.CPUPercentNormalized, 'f', 3, 64), // v7: normalized CPU percentage
 		strconv.FormatFloat(record.MemoryMB, 'f', 2, 64),
+		strconv.FormatFloat(record.MemoryPercent, 'f', 2, 64), // v6: memory percentage
 		strconv.FormatInt(int64(record.Threads), 10),
 		strconv.FormatFloat(record.DiskReadMB, 'f', 2, 64),
 		strconv.FormatFloat(record.DiskWriteMB, 'f', 2, 64),

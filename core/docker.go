@@ -263,7 +263,7 @@ func (dm *DockerMonitor) getSingleContainerStats(container types.Container) (Doc
 	cpuPercent := calculateCPUPercent(&dockerStats)
 
 	// Calculate memory percentage
-	memoryPercent := calculateMemoryPercent(&dockerStats)
+	memoryPercent := calculateDockerMemoryPercent(&dockerStats)
 
 	// Extract container name
 	containerName := ""
@@ -353,7 +353,7 @@ func calculateCPUPercent(stats *types.StatsJSON) float64 {
 	return 0.0
 }
 
-func calculateMemoryPercent(stats *types.StatsJSON) float64 {
+func calculateDockerMemoryPercent(stats *types.StatsJSON) float64 {
 	if stats.MemoryStats.Limit > 0 {
 		return float64(stats.MemoryStats.Usage) / float64(stats.MemoryStats.Limit) * 100.0
 	}

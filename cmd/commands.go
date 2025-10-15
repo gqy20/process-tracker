@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/yourusername/process-tracker/core"
@@ -103,19 +105,37 @@ func (mc *MonitoringCommands) StartMonitoring() error {
 		return fmt.Errorf("初始化失败: %w", err)
 	}
 
+	// Setup signal handling for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
 	// Start monitoring loop
-	go mc.monitoringLoop()
+	stopCh := make(chan struct{})
+	go mc.monitoringLoop(stopCh)
 
 	fmt.Println("✅ 监控已启动")
 
-	// Keep the main process running
-	select {} // This blocks forever until interrupted
-
-	return nil // This line will never be reached
+	// Wait for shutdown signal
+	<-sigCh
+	fmt.Println("\n🛑 收到停止信号，正在关闭...")
+	
+	// Signal monitoring loop to stop
+	close(stopCh)
+	
+	// Give it a moment to finish current work
+	time.Sleep(500 * time.Millisecond)
+	
+	// Cleanup
+	if err := mc.app.CloseFile(); err != nil {
+		fmt.Printf("⚠️  清理资源失败: %v\n", err)
+	}
+	
+	fmt.Println("✅ 监控已停止")
+	return nil
 }
 
 // monitoringLoop runs the actual monitoring in a goroutine
-func (mc *MonitoringCommands) monitoringLoop() {
+func (mc *MonitoringCommands) monitoringLoop(stopCh chan struct{}) {
 	ticker := time.NewTicker(mc.app.Interval)
 	defer ticker.Stop()
 
@@ -125,6 +145,8 @@ func (mc *MonitoringCommands) monitoringLoop() {
 			if err := mc.app.CollectAndSaveData(); err != nil {
 				fmt.Printf("收集数据失败: %v\n", err)
 			}
+		case <-stopCh:
+			return
 		}
 	}
 }

@@ -10,9 +10,19 @@ import (
 // Simplified to follow "simple first" principle
 type Config struct {
 	// Core settings (rarely need to change)
-	EnableSmartCategories bool          // Enable intelligent process categorization (default: true)
-	Storage               StorageConfig // Storage management configuration
-	Docker                DockerConfig  // Docker monitoring configuration
+	EnableSmartCategories bool                // Enable intelligent process categorization (default: true)
+	Storage               StorageConfig       // Storage management configuration
+	Docker                DockerConfig        // Docker monitoring configuration
+	Web                   WebConfig           // Web dashboard configuration
+	Alerts                AlertConfig         // Alert configuration
+	Notifiers             NotifiersConfig     // Notifiers configuration
+}
+
+// WebConfig represents web dashboard configuration
+type WebConfig struct {
+	Enabled bool   `yaml:"enabled"` // Enable web dashboard (default: false)
+	Host    string `yaml:"host"`    // Host to bind to (default: localhost)
+	Port    string `yaml:"port"`    // Port to listen on (default: 8080)
 }
 
 // StorageConfig represents storage management configuration
@@ -24,22 +34,24 @@ type StorageConfig struct {
 
 // ResourceRecord represents a single resource usage record
 type ResourceRecord struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Name        string    `json:"name"`
-	CPUPercent  float64   `json:"cpu_percent"`
-	MemoryMB    float64   `json:"memory_mb"`
-	Threads     int32     `json:"threads"`
-	DiskReadMB  float64   `json:"disk_read_mb"`
-	DiskWriteMB float64   `json:"disk_write_mb"`
-	NetSentKB   float64   `json:"net_sent_kb"`
-	NetRecvKB   float64   `json:"net_recv_kb"`
-	IsActive    bool      `json:"is_active"`
-	Command     string    `json:"command"`
-	WorkingDir  string    `json:"working_dir"`
-	Category    string    `json:"category"`
-	PID         int32     `json:"pid"`         // Process ID
-	CreateTime  int64     `json:"create_time"` // Process start time (Unix timestamp)
-	CPUTime     float64   `json:"cpu_time"`    // Cumulative CPU time in seconds
+	Timestamp            time.Time `json:"timestamp"`
+	Name                 string    `json:"name"`
+	CPUPercent           float64   `json:"cpu_percent"`            // Raw CPU percent (can exceed 100% on multi-core)
+	CPUPercentNormalized float64   `json:"cpu_percent_normalized"` // Normalized CPU percent (0-100% of total system CPU)
+	MemoryMB             float64   `json:"memory_mb"`
+	MemoryPercent        float64   `json:"memory_percent"` // Memory usage as percentage of system total
+	Threads              int32     `json:"threads"`
+	DiskReadMB           float64   `json:"disk_read_mb"`
+	DiskWriteMB          float64   `json:"disk_write_mb"`
+	NetSentKB            float64   `json:"net_sent_kb"`
+	NetRecvKB            float64   `json:"net_recv_kb"`
+	IsActive             bool      `json:"is_active"`
+	Command              string    `json:"command"`
+	WorkingDir           string    `json:"working_dir"`
+	Category             string    `json:"category"`
+	PID                  int32     `json:"pid"`         // Process ID
+	CreateTime           int64     `json:"create_time"` // Process start time (Unix timestamp)
+	CPUTime              float64   `json:"cpu_time"`    // Cumulative CPU time in seconds
 }
 
 // ResourceStats represents calculated resource statistics
@@ -93,6 +105,17 @@ func GetDefaultConfig() Config {
 		Docker: DockerConfig{
 			Enabled: true, // Auto-detect and enable if available
 		},
+		Web: WebConfig{
+			Enabled: false,   // Disabled by default
+			Host:    "0.0.0.0", // Listen on all interfaces for LAN access
+			Port:    "18080", // Default port (non-standard to avoid conflicts)
+		},
+		Alerts: AlertConfig{
+			Enabled:          false, // Disabled by default
+			Rules:            []AlertRule{},
+			SuppressDuration: 30, // 30 minutes
+		},
+		Notifiers: NotifiersConfig{},
 	}
 }
 

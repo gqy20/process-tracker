@@ -1,16 +1,17 @@
 # Process Tracker
 
-一个智能的进程监控工具，用于跟踪和分析系统进程的资源使用情况。
+一个智能的进程监控工具，提供实时Web界面和命令行统计，用于跟踪和分析系统进程的资源使用情况。
 
 ## ✨ 主要特性
 
-- 🔍 **实时监控**: 监控CPU、内存、磁盘I/O、网络使用情况
+- 🌐 **Web界面**: 实时可视化仪表板，图表展示CPU/内存趋势
+- 🔍 **实时监控**: CPU、内存、磁盘I/O、Docker容器监控
 - 📊 **智能统计**: 支持简单、详细、完整三种统计粒度
 - 🗂️ **智能分类**: 自动识别应用程序类型（Java、Node.js、Python等）
 - 💾 **存储优化**: 自动文件轮转和压缩，节省90%存储空间
+- 🎛️ **守护进程**: start/stop/restart/status 进程管理
 - 📁 **多平台支持**: Linux、macOS、Windows
-- 🎛️ **灵活配置**: YAML配置文件支持
-- 📤 **数据导出**: JSON格式数据导出和分析
+- 📤 **数据导出**: JSON/CSV格式数据导出
 
 ## 🚀 快速开始
 
@@ -27,27 +28,35 @@ cd process-tracker
 
 ### 基本使用
 
+#### 启动Web界面（推荐）
+
 ```bash
-# 开始监控
-./process-tracker start
+# 启动Web监控界面
+./process-tracker start --web
 
-# 查看今日统计
-./process-tracker today
+# 访问仪表板
+# 浏览器打开任意显示的内网IP地址，例如：
+# http://192.168.1.100:18080
+```
 
-# 查看本周统计  
-./process-tracker week
+#### 命令行统计
 
-# 查看详细统计
-./process-tracker details
+```bash
+# 进程管理
+./process-tracker start          # 后台启动监控
+./process-tracker stop           # 停止监控
+./process-tracker restart --web  # 重启并启用Web
+./process-tracker status         # 查看状态
 
-# 导出数据
-./process-tracker export
+# 查看统计
+./process-tracker today          # 今日统计
+./process-tracker week           # 本周统计  
+./process-tracker month          # 本月统计
+./process-tracker details        # 详细统计
 
-# 清理旧数据
-./process-tracker cleanup
-
-# 查看版本
-./process-tracker version
+# 数据管理
+./process-tracker export         # 导出数据
+./process-tracker cleanup        # 清理旧数据
 ```
 
 ## ⚙️ 配置
@@ -83,13 +92,24 @@ docker:
 
 ## 📈 监控指标
 
-- **CPU使用率**: 进程CPU占用百分比
-- **内存使用**: 进程内存占用(MB)
+### 系统级指标
+- **CPU使用率（归一化）**: 0-100%表示整个系统的CPU使用率
+  - 例如：72核系统，单进程100% CPU显示为1.39%
+- **内存使用**: MB和百分比双重显示
+  - 例如：24GB (7.52%) - 一目了然系统压力
+
+### 进程级指标
+- **CPU**: 原始CPU百分比 + 归一化百分比
+- **内存**: 绝对值(MB) + 占系统百分比
 - **线程数**: 进程线程数量
 - **磁盘I/O**: 读取和写入数据量(MB)
-- **网络流量**: ⚠️ 当前版本未实现进程级网络监控（数据始终为0）
-- **活跃状态**: 基于CPU和内存使用的活动检测
-- **Docker容器**: 容器级别的资源使用统计（需启用Docker监控）
+- **进程信息**: PID、启动时间、CPU累积时间
+- **活跃状态**: 基于CPU和内存使用的智能检测
+
+### Docker监控
+- **容器统计**: CPU、内存、磁盘、网络流量
+- **自动检测**: 自动发现并监控运行中的容器
+- **分类标识**: docker:容器名 格式显示
 
 ## 🏗️ 架构特点
 
@@ -169,14 +189,32 @@ releases/v0.3.7/
 └── process-tracker-linux-arm64 # Linux ARM64
 ```
 
+## 📚 文档
+
+- [Web快速开始](docs/QUICKSTART.md) - Web界面使用指南
+- [功能详解](docs/FEATURES.md) - CPU归一化、内存百分比等功能说明
+- [开发指南](docs/development.md) - 贡献代码前请阅读
+- [AI开发助手](CLAUDE.md) - AI助手的项目架构说明
+
+## 🆕 最新更新 (v0.3.9+)
+
+- ✅ Web实时监控界面
+- ✅ CPU归一化显示（0-100%表示系统整体）
+- ✅ 内存百分比显示
+- ✅ 守护进程管理（start/stop/restart/status）
+- ✅ 自动显示所有内网IP地址
+- ✅ 优雅关闭机制（5秒超时保护）
+- ✅ Docker容器监控
+- ✅ 进程搜索和分类过滤
+
 ## 📄 许可证
 
-[添加您的许可证信息]
+MIT License
 
 ## 🤝 贡献
 
 欢迎提交Issue和Pull Request！
 
-## 📞 联系方式
-
-[添加您的联系信息]
+开发前请阅读：
+- [CLAUDE.md](CLAUDE.md) - 项目架构和设计理念
+- [docs/development.md](docs/development.md) - 开发指南
