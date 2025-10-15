@@ -29,6 +29,8 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+        cache: true
+        cache-dependency-path: go.sum
     
     - name: Extract Version
       id: version
@@ -151,6 +153,8 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+        cache: true
+        cache-dependency-path: go.sum
     
     - name: Build for ${{ matrix.os }}/${{ matrix.goarch }}
       env:
