@@ -11,14 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"sort"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/yourusername/process-tracker/core"
 )
 
@@ -316,8 +313,8 @@ func (ws *WebServer) readRecentRecords(duration time.Duration) ([]core.ResourceR
 // calculateStats calculates dashboard statistics
 func (ws *WebServer) calculateStats(records []core.ResourceRecord, duration time.Duration) DashboardStats {
 	// Get system information
-	cpuCores := getSystemCPUCores()
-	totalMemoryMB := getSystemTotalMemoryMB()
+	cpuCores := core.SystemCPUCores()
+	totalMemoryMB := core.SystemMemoryMB()
 	
 	if len(records) == 0 {
 		return DashboardStats{
@@ -558,25 +555,6 @@ func (ws *WebServer) getLatestProcesses(records []core.ResourceRecord) []Process
 }
 
 // Helper functions
-
-// getSystemCPUCores returns the number of CPU cores
-func getSystemCPUCores() int {
-	// Try gopsutil first
-	if counts, err := cpu.Counts(true); err == nil {
-		return counts
-	}
-	// Fallback to runtime
-	return runtime.NumCPU()
-}
-
-// getSystemTotalMemoryMB returns the total system memory in MB
-func getSystemTotalMemoryMB() float64 {
-	v, err := mem.VirtualMemory()
-	if err != nil {
-		return 0
-	}
-	return float64(v.Total) / 1024 / 1024
-}
 
 func getStatus(isActive bool) string {
 	if isActive {

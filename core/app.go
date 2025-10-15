@@ -3,21 +3,10 @@ package core
 import (
 	"fmt"
 	"log"
-	"runtime"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
-)
-
-var (
-	cachedTotalMemoryMB float64
-	cachedTotalCPUCores int
-	memoryMu            sync.RWMutex
-	cpuMu               sync.RWMutex
 )
 
 // ProcessInfo represents process information for monitoring
@@ -101,7 +90,7 @@ func (a *App) Initialize() error {
 		a.Config.Storage.KeepDays)
 
 	// Initialize total memory cache
-	getTotalMemoryMB()
+	SystemMemoryMB()
 
 	// Start Docker monitoring if enabled
 	if a.dockerMonitor != nil {
@@ -111,82 +100,6 @@ func (a *App) Initialize() error {
 	}
 
 	return nil
-}
-
-// getTotalMemoryMB returns the total system memory in MB (cached)
-func getTotalMemoryMB() float64 {
-	memoryMu.RLock()
-	if cachedTotalMemoryMB > 0 {
-		memoryMu.RUnlock()
-		return cachedTotalMemoryMB
-	}
-	memoryMu.RUnlock()
-
-	memoryMu.Lock()
-	defer memoryMu.Unlock()
-
-	// Double-check after acquiring write lock
-	if cachedTotalMemoryMB > 0 {
-		return cachedTotalMemoryMB
-	}
-
-	// Get system memory info
-	v, err := mem.VirtualMemory()
-	if err != nil {
-		log.Printf("Warning: Failed to get system memory: %v", err)
-		return 0
-	}
-
-	cachedTotalMemoryMB = float64(v.Total) / 1024 / 1024
-	log.Printf("System total memory: %.2f MB", cachedTotalMemoryMB)
-	
-	return cachedTotalMemoryMB
-}
-
-// calculateMemoryPercent calculates memory usage as percentage of system total
-func calculateMemoryPercent(memoryMB float64) float64 {
-	totalMB := getTotalMemoryMB()
-	if totalMB == 0 {
-		return 0
-	}
-	return (memoryMB / totalMB) * 100
-}
-
-// getTotalCPUCores returns the total number of CPU cores (cached)
-func getTotalCPUCores() int {
-	// Return cached value if available
-	cpuMu.RLock()
-	if cachedTotalCPUCores > 0 {
-		defer cpuMu.RUnlock()
-		return cachedTotalCPUCores
-	}
-	cpuMu.RUnlock()
-
-	// Get CPU cores count and cache it
-	cpuMu.Lock()
-	defer cpuMu.Unlock()
-
-	// Try gopsutil first (logical cores)
-	if counts, err := cpu.Counts(true); err == nil && counts > 0 {
-		cachedTotalCPUCores = counts
-		log.Printf("System total CPU cores: %d", cachedTotalCPUCores)
-		return cachedTotalCPUCores
-	}
-
-	// Fallback to runtime.NumCPU
-	cachedTotalCPUCores = runtime.NumCPU()
-	log.Printf("System total CPU cores (from runtime): %d", cachedTotalCPUCores)
-	return cachedTotalCPUCores
-}
-
-// calculateCPUPercentNormalized calculates CPU usage as percentage of total system CPU
-// For example: 100% on single core = 100/72 = 1.39% on 72-core system
-func calculateCPUPercentNormalized(cpuPercent float64) float64 {
-	totalCores := getTotalCPUCores()
-	if totalCores == 0 {
-		return 0
-	}
-	return cpuPercent / float64(totalCores)
 }
 
 // CloseFile closes file handles and cleans up resources
@@ -546,9 +459,9 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 			Name:                 name,
 			Timestamp:            time.Now(),
 			CPUPercent:           info.CPUPercent,
-			CPUPercentNormalized: calculateCPUPercentNormalized(info.CPUPercent),
+			CPUPercentNormalized: CalculateCPUPercentNormalized(info.CPUPercent),
 			MemoryMB:             info.MemoryMB,
-			MemoryPercent:        calculateMemoryPercent(info.MemoryMB),
+			MemoryPercent:        CalculateMemoryPercent(info.MemoryMB),
 			Threads:              info.Threads,
 			DiskReadMB:           info.DiskReadMB,
 			DiskWriteMB:          info.DiskWriteMB,
@@ -663,9 +576,9 @@ func (a *App) CollectAndSaveData() error {
 			Name:                 name,
 			Timestamp:            time.Now(),
 			CPUPercent:           info.CPUPercent,
-			CPUPercentNormalized: calculateCPUPercentNormalized(info.CPUPercent),
+			CPUPercentNormalized: CalculateCPUPercentNormalized(info.CPUPercent),
 			MemoryMB:             info.MemoryMB,
-			MemoryPercent:        calculateMemoryPercent(info.MemoryMB),
+			MemoryPercent:        CalculateMemoryPercent(info.MemoryMB),
 			Threads:              info.Threads,
 			DiskReadMB:           info.DiskReadMB,
 			DiskWriteMB:          info.DiskWriteMB,
@@ -733,9 +646,9 @@ func (a *App) collectDockerContainerRecords() []ResourceRecord {
 			Name:                 fmt.Sprintf("docker:%s", stat.ContainerName),
 			Timestamp:            stat.Timestamp,
 			CPUPercent:           stat.CPUPercent,
-			CPUPercentNormalized: calculateCPUPercentNormalized(stat.CPUPercent),
+			CPUPercentNormalized: CalculateCPUPercentNormalized(stat.CPUPercent),
 			MemoryMB:             memoryMB,
-			MemoryPercent:        calculateMemoryPercent(memoryMB),
+			MemoryPercent:        CalculateMemoryPercent(memoryMB),
 			Threads:              0, // Not available for containers
 			DiskReadMB:           float64(stat.BlockReadBytes) / 1024 / 1024,
 			DiskWriteMB:          float64(stat.BlockWriteBytes) / 1024 / 1024,

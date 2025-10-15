@@ -129,7 +129,7 @@ func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, process
 		for _, r := range records {
 			totalCPU += r.CPUPercent
 		}
-		cores := getTotalCPUCores()
+		cores := SystemCPUCores()
 		if cores == 0 {
 			return 0
 		}
@@ -143,7 +143,7 @@ func (am *AlertManager) getMetricValue(records []ResourceRecord, metric, process
 		for _, r := range records {
 			totalMemMB += r.MemoryMB
 		}
-		systemMemMB := getTotalMemoryMB()
+		systemMemMB := SystemMemoryMB()
 		if systemMemMB == 0 {
 			return 0
 		}

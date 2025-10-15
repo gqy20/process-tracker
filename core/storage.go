@@ -38,13 +38,15 @@ func NewManager(dataFile string, bufferSize int, useStorageManager bool, storage
 
 // Initialize initializes the storage manager
 func (m *Manager) Initialize() error {
-	if err := m.initializeFile(); err != nil {
-		return fmt.Errorf("failed to initialize file: %w", err)
-	}
-
 	if m.useStorageMgr {
+		// Use StorageManager for file management
 		sm := NewStorageManager(m.dataFile, m.storageConfig)
 		m.storageManager = sm
+	} else {
+		// Only initialize file directly when not using StorageManager
+		if err := m.initializeFile(); err != nil {
+			return fmt.Errorf("failed to initialize file: %w", err)
+		}
 	}
 
 	return nil
