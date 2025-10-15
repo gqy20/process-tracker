@@ -160,9 +160,13 @@ jobs:
       env:
         GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || (matrix.os == 'macos-latest' && 'darwin' || 'windows') }}
         GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
         VERSION: ${{ needs.version-check.outputs.version }}
       shell: bash
       run: |
+        echo "🔧 Building with static compilation (CGO_ENABLED=0)"
+        echo "Platform: $GOOS/$GOARCH"
+        
         # 设置输出文件名
         if [ "$GOOS" = "windows" ]; then
           OUTPUT_NAME="process-tracker.exe"
@@ -180,8 +184,8 @@ jobs:
           fi
         fi
         
-        # 构建程序
-        go build -ldflags="-X main.Version=$VERSION" -o "$OUTPUT_NAME" .
+        # 构建程序（静态编译）
+        go build -ldflags="-s -w -X main.Version=$VERSION" -trimpath -o "$OUTPUT_NAME" .
         
         echo "Built: $OUTPUT_NAME"
         

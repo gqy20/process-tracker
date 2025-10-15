@@ -12,8 +12,12 @@ RELEASE_DIR="releases/v${VERSION}"
 # Build flags for optimization
 BUILD_FLAGS="-ldflags=\"-s -w -X main.Version=${VERSION}\" -trimpath"
 
-echo "🔨 Building process-tracker for multiple platforms..."
+# Static compilation flags (no CGO for maximum portability)
+export CGO_ENABLED=0
+
+echo "🔨 Building process-tracker for multiple platforms (static)..."
 echo "📁 Output directory: ${RELEASE_DIR}"
+echo "🔧 Static compilation enabled (CGO_ENABLED=0)"
 
 # Create release directory
 mkdir -p "${RELEASE_DIR}"

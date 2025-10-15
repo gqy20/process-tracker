@@ -219,6 +219,7 @@ releases/v0.3.7/
 - [告警配置指南](docs/ALERTS.md) - 告警功能完整说明
 - [Web快速开始](docs/QUICKSTART.md) - Web界面使用指南
 - [功能详解](docs/FEATURES.md) - CPU归一化、内存百分比等功能说明
+- [兼容性说明](docs/COMPATIBILITY.md) - 平台兼容性和GLIBC问题解决⭐
 - [开发指南](docs/development.md) - 贡献代码前请阅读
 - [AI开发助手](CLAUDE.md) - AI助手的项目架构说明
 
