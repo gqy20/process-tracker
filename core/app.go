@@ -137,6 +137,189 @@ func (a *App) CalculateResourceStats(period time.Duration) ([]ResourceStats, err
 	return a.storage.CalculateStats(filteredRecords), nil
 }
 
+// CompareStats compares statistics between two time periods
+func (a *App) CompareStats(period1, period2 time.Duration, name1, name2 string) error {
+	stats1, err := a.CalculateResourceStats(period1)
+	if err != nil {
+		return fmt.Errorf("failed to get stats for %s: %w", name1, err)
+	}
+
+	stats2, err := a.CalculateResourceStats(period2)
+	if err != nil {
+		return fmt.Errorf("failed to get stats for %s: %w", name2, err)
+	}
+
+	// Create maps for easier comparison
+	statsMap1 := make(map[string]ResourceStats)
+	statsMap2 := make(map[string]ResourceStats)
+
+	for _, stat := range stats1 {
+		statsMap1[stat.Name] = stat
+	}
+	for _, stat := range stats2 {
+		statsMap2[stat.Name] = stat
+	}
+
+	// Display comparison
+	fmt.Printf("\n📊 对比分析: %s vs %s\n", name1, name2)
+	fmt.Println(strings.Repeat("═", 100))
+
+	// Get all unique process names
+	allNames := make(map[string]bool)
+	for name := range statsMap1 {
+		allNames[name] = true
+	}
+	for name := range statsMap2 {
+		allNames[name] = true
+	}
+
+	// Display comparison table
+	fmt.Printf("%-25s %18s %18s %15s\n", "进程名称", name1+"(内存)", name2+"(内存)", "变化")
+	fmt.Println(strings.Repeat("─", 100))
+
+	for name := range allNames {
+		stat1, exists1 := statsMap1[name]
+		stat2, exists2 := statsMap2[name]
+
+		if exists1 && exists2 {
+			mem1 := stat1.MemoryAvg
+			mem2 := stat2.MemoryAvg
+			change := ((mem2 - mem1) / mem1) * 100
+
+			var changeStr string
+			if change > 0 {
+				changeStr = fmt.Sprintf("↑ +%.1f%%", change)
+			} else if change < 0 {
+				changeStr = fmt.Sprintf("↓ %.1f%%", change)
+			} else {
+				changeStr = "→ 0.0%"
+			}
+
+			fmt.Printf("%-25s %18s %18s %15s\n",
+				truncateString(name, 25), formatMemory(mem1), formatMemory(mem2), changeStr)
+		} else if exists1 {
+			fmt.Printf("%-25s %18s %18s %15s\n",
+				truncateString(name, 25), formatMemory(stat1.MemoryAvg), "-", "已消失")
+		} else if exists2 {
+			fmt.Printf("%-25s %18s %18s %15s\n",
+				truncateString(name, 25), "-", formatMemory(stat2.MemoryAvg), "新出现")
+		}
+	}
+
+	return nil
+}
+
+// ShowTrends shows resource usage trends over multiple days
+func (a *App) ShowTrends(days int) error {
+	if days <= 0 {
+		days = 7
+	}
+
+	fmt.Printf("\n📈 资源使用趋势 (最近 %d 天)\n", days)
+	fmt.Println(strings.Repeat("═", 100))
+
+	// Collect stats for each day
+	type DayStats struct {
+		Day        int
+		TotalProc  int
+		AvgCPU     float64
+		TotalMem   float64
+		TotalDisk  float64
+	}
+
+	var dailyStats []DayStats
+
+	for day := 0; day < days; day++ {
+		startPeriod := time.Duration(day*24) * time.Hour
+		endPeriod := time.Duration((day+1)*24) * time.Hour
+
+		records, err := a.ReadResourceRecords(a.DataFile)
+		if err != nil {
+			return fmt.Errorf("failed to read records: %w", err)
+		}
+
+		// Filter records for this day
+		now := time.Now()
+		startTime := now.Add(-endPeriod)
+		endTime := now.Add(-startPeriod)
+
+		var dayRecords []ResourceRecord
+		for _, record := range records {
+			if record.Timestamp.After(startTime) && record.Timestamp.Before(endTime) {
+				dayRecords = append(dayRecords, record)
+			}
+		}
+
+		if len(dayRecords) == 0 {
+			continue
+		}
+
+		stats := a.storage.CalculateStats(dayRecords)
+
+		// Calculate aggregates
+		var totalCPU, totalMem, totalDisk float64
+		for _, stat := range stats {
+			totalCPU += stat.CPUAvg
+			totalMem += stat.MemoryAvg
+			totalDisk += stat.DiskReadAvg + stat.DiskWriteAvg
+		}
+
+		avgCPU := 0.0
+		if len(stats) > 0 {
+			avgCPU = totalCPU / float64(len(stats))
+		}
+
+		dailyStats = append(dailyStats, DayStats{
+			Day:       day,
+			TotalProc: len(stats),
+			AvgCPU:    avgCPU,
+			TotalMem:  totalMem,
+			TotalDisk: totalDisk,
+		})
+	}
+
+	// Display trend table
+	fmt.Printf("%-15s %12s %12s %18s %18s\n", "日期", "进程数", "平均CPU", "总内存", "总磁盘I/O")
+	fmt.Println(strings.Repeat("─", 100))
+
+	for i := len(dailyStats) - 1; i >= 0; i-- {
+		stat := dailyStats[i]
+		dateStr := fmt.Sprintf("%d天前", stat.Day)
+		if stat.Day == 0 {
+			dateStr = "今天"
+		} else if stat.Day == 1 {
+			dateStr = "昨天"
+		}
+
+		fmt.Printf("%-15s %12d %11.1f%% %18s %18s\n",
+			dateStr, stat.TotalProc, stat.AvgCPU, formatMemory(stat.TotalMem), formatMemory(stat.TotalDisk))
+	}
+
+	// Show trend indicators
+	if len(dailyStats) >= 2 {
+		fmt.Println("\n趋势分析:")
+		recent := dailyStats[0]
+		older := dailyStats[len(dailyStats)-1]
+
+		memTrend := ((recent.TotalMem - older.TotalMem) / older.TotalMem) * 100
+		cpuTrend := ((recent.AvgCPU - older.AvgCPU) / older.AvgCPU) * 100
+
+		if memTrend > 10 {
+			fmt.Printf("  ⚠️  内存使用上升 %.1f%%\n", memTrend)
+		} else if memTrend < -10 {
+			fmt.Printf("  ✅ 内存使用下降 %.1f%%\n", -memTrend)
+		}
+
+		if cpuTrend > 10 {
+			fmt.Printf("  ⚠️  CPU使用上升 %.1f%%\n", cpuTrend)
+		} else if cpuTrend < -10 {
+			fmt.Printf("  ✅ CPU使用下降 %.1f%%\n", -cpuTrend)
+		}
+	}
+
+	return nil
+}
+
 // CleanOldData removes old data files
 func (a *App) CleanOldData(keepDays int) error {
 	return a.storage.CleanOldData(keepDays)
@@ -145,6 +328,27 @@ func (a *App) CleanOldData(keepDays int) error {
 // GetTotalRecords returns the total number of records
 func (a *App) GetTotalRecords() (int, error) {
 	return a.storage.GetTotalRecords()
+}
+
+// truncateString truncates string to specified length
+func truncateString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
+// formatMemory formats memory size with appropriate unit (MB/GB/TB)
+func formatMemory(mb float64) string {
+	if mb >= 1024*1024 { // >= 1TB
+		return fmt.Sprintf("%.2fTB", mb/1024/1024)
+	} else if mb >= 1024 { // >= 1GB
+		return fmt.Sprintf("%.2fGB", mb/1024)
+	} else if mb >= 1 {
+		return fmt.Sprintf("%.1fMB", mb)
+	} else {
+		return fmt.Sprintf("%.2fKB", mb*1024)
+	}
 }
 
 // GetProcessInfo gets detailed process information

@@ -12,64 +12,79 @@ type MonitoringCommands struct {
 	app *core.App
 }
 
+// StatsOptions contains options for displaying statistics
+type StatsOptions struct {
+	Granularity string
+	SortBy      string
+	Filter      string
+	Category    string
+	Top         int
+	ShowSummary bool
+}
+
 // NewMonitoringCommands creates a new MonitoringCommands instance
 func NewMonitoringCommands(app *core.App) *MonitoringCommands {
 	return &MonitoringCommands{app: app}
 }
 
-// ShowTodayStats shows today's process statistics
-func (mc *MonitoringCommands) ShowTodayStats(granularity string) error {
-	stats, err := mc.app.CalculateResourceStats(24 * time.Hour)
+// ShowStats shows process statistics with options
+func (mc *MonitoringCommands) ShowStats(title string, period time.Duration, opts StatsOptions) error {
+	stats, err := mc.app.CalculateResourceStats(period)
 	if err != nil {
-		return fmt.Errorf("获取今日统计失败: %w", err)
+		return fmt.Errorf("获取统计失败: %w", err)
 	}
 
-	DisplayStats("今日统计", stats, granularity)
+	// Map title to Chinese
+	titleMap := map[string]string{
+		"today":   "今日统计",
+		"week":    "本周统计",
+		"month":   "本月统计",
+		"details": "详细统计",
+	}
+	displayTitle := titleMap[title]
+	if displayTitle == "" {
+		displayTitle = title
+	}
+
+	DisplayStatsWithOptions(displayTitle, stats, opts)
 	return nil
 }
 
-// ShowWeekStats shows this week's process statistics
-func (mc *MonitoringCommands) ShowWeekStats(granularity string) error {
-	stats, err := mc.app.CalculateResourceStats(7 * 24 * time.Hour)
-	if err != nil {
-		return fmt.Errorf("获取本周统计失败: %w", err)
+// CompareStats compares statistics between different time periods
+func (mc *MonitoringCommands) CompareStats(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("用法: compare <period1> <period2>\n例如: compare today yesterday")
 	}
 
-	DisplayStats("本周统计", stats, granularity)
-	return nil
-}
-
-// ShowMonthStats shows this month's process statistics
-func (mc *MonitoringCommands) ShowMonthStats(granularity string) error {
-	stats, err := mc.app.CalculateResourceStats(30 * 24 * time.Hour)
+	period1, err := parsePeriod(args[0])
 	if err != nil {
-		return fmt.Errorf("获取本月统计失败: %w", err)
+		return fmt.Errorf("无效的时间段1: %w", err)
 	}
 
-	DisplayStats("本月统计", stats, granularity)
-	return nil
-}
-
-// ShowDetailedStats shows detailed process statistics
-func (mc *MonitoringCommands) ShowDetailedStats(granularity string) error {
-	stats, err := mc.app.CalculateResourceStats(24 * time.Hour)
+	period2, err := parsePeriod(args[1])
 	if err != nil {
-		return fmt.Errorf("获取详细统计失败: %w", err)
+		return fmt.Errorf("无效的时间段2: %w", err)
 	}
 
-	DisplayStats("详细统计", stats, granularity)
-	return nil
+	return mc.app.CompareStats(period1, period2, args[0], args[1])
 }
 
-// ExportData exports process data to JSON format
-func (mc *MonitoringCommands) ExportData(filename string) error {
-	// Calculate stats from data file
+// ShowTrends shows resource usage trends over time
+func (mc *MonitoringCommands) ShowTrends(days int) error {
+	return mc.app.ShowTrends(days)
+}
+
+// ExportData exports process data to specified format
+func (mc *MonitoringCommands) ExportData(filename string, format string) error {
 	stats, err := mc.app.CalculateResourceStats(24 * time.Hour)
 	if err != nil {
 		return fmt.Errorf("计算统计数据失败: %w", err)
 	}
 
-	return ExportData(stats, filename)
+	if format == "csv" {
+		return ExportDataCSV(stats, filename)
+	}
+	return ExportDataJSON(stats, filename)
 }
 
 // StartMonitoring starts the process monitoring
@@ -107,5 +122,21 @@ func (mc *MonitoringCommands) monitoringLoop() {
 				fmt.Printf("收集数据失败: %v\n", err)
 			}
 		}
+	}
+}
+
+// parsePeriod parses a period string to time.Duration
+func parsePeriod(period string) (time.Duration, error) {
+	switch period {
+	case "today":
+		return 24 * time.Hour, nil
+	case "yesterday":
+		return 48 * time.Hour, nil
+	case "week":
+		return 7 * 24 * time.Hour, nil
+	case "month":
+		return 30 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("不支持的时间段: %s (支持: today, yesterday, week, month)", period)
 	}
 }

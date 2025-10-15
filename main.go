@@ -27,19 +27,14 @@ func NewApp(dataFile string, interval time.Duration, config core.Config) *App {
 }
 
 func main() {
-	// Parse command line flags
-	var (
-		configPath  = flag.String("config", os.ExpandEnv("$HOME/.process-tracker/config.yaml"), "配置文件路径")
-		dataFile    = flag.String("data-file", os.ExpandEnv("$HOME/.process-tracker/process-tracker.log"), "数据文件路径")
-		intervalSec = flag.Int("interval", 5, "监控间隔(秒)")
-		granularity = flag.String("granularity", "simple", "统计粒度 (simple/detailed/full)")
-		help        = flag.Bool("help", false, "显示帮助信息")
-	)
+	// Global flags
+	configPath := flag.String("config", os.ExpandEnv("$HOME/.process-tracker/config.yaml"), "配置文件路径")
+	dataFile := flag.String("data-file", os.ExpandEnv("$HOME/.process-tracker/process-tracker.log"), "数据文件路径")
+	help := flag.Bool("help", false, "显示帮助信息")
 
 	flag.Parse()
 
-	// Show help if requested
-	if *help {
+	if *help || flag.NArg() == 0 {
 		cmd.PrintUsage(Version)
 		return
 	}
@@ -51,59 +46,109 @@ func main() {
 		config = core.GetDefaultConfig()
 	}
 
-	// Create app with dependency injection
-	interval := time.Duration(*intervalSec) * time.Second
-	if interval <= 0 {
-		interval = 5 * time.Second // default interval
+	command := flag.Arg(0)
+
+	// Handle version command early
+	if command == "version" {
+		fmt.Printf("进程跟踪器版本 %s\n", Version)
+		return
 	}
-	app := NewApp(*dataFile, interval, config)
 
-	// Create command handlers
-	monitorCmd := cmd.NewMonitoringCommands(app.App)
-
-	// Handle commands
-	if flag.NArg() == 0 {
+	if command == "help" {
 		cmd.PrintUsage(Version)
 		return
 	}
 
-	command := flag.Arg(0)
+	// Create app
+	app := NewApp(*dataFile, 5*time.Second, config)
+	monitorCmd := cmd.NewMonitoringCommands(app.App)
+
+	// Handle commands with subcommand flags
 	switch command {
-	case "version":
-		fmt.Printf("进程跟踪器版本 %s\n", Version)
 	case "start":
+		startFlags := flag.NewFlagSet("start", flag.ExitOnError)
+		intervalSec := startFlags.Int("interval", 5, "监控间隔(秒)")
+		startFlags.Parse(flag.Args()[1:])
+
+		interval := time.Duration(*intervalSec) * time.Second
+		if interval <= 0 {
+			interval = 5 * time.Second
+		}
+		app.Interval = interval
+
 		if err := monitorCmd.StartMonitoring(); err != nil {
 			log.Fatalf("启动监控失败: %v", err)
 		}
-	case "today":
-		if err := monitorCmd.ShowTodayStats(*granularity); err != nil {
-			log.Fatalf("显示今日统计失败: %v", err)
+
+	case "today", "week", "month", "details":
+		opts := parseStatsFlags(flag.Args()[1:])
+		var period time.Duration
+		switch command {
+		case "today":
+			period = 24 * time.Hour
+		case "week":
+			period = 7 * 24 * time.Hour
+		case "month":
+			period = 30 * 24 * time.Hour
+		case "details":
+			period = 24 * time.Hour
 		}
-	case "week":
-		if err := monitorCmd.ShowWeekStats(*granularity); err != nil {
-			log.Fatalf("显示本周统计失败: %v", err)
+
+		if err := monitorCmd.ShowStats(command, period, opts); err != nil {
+			log.Fatalf("显示统计失败: %v", err)
 		}
-	case "month":
-		if err := monitorCmd.ShowMonthStats(*granularity); err != nil {
-			log.Fatalf("显示本月统计失败: %v", err)
+
+	case "compare":
+		if err := monitorCmd.CompareStats(flag.Args()[1:]); err != nil {
+			log.Fatalf("对比统计失败: %v", err)
 		}
-	case "details":
-		if err := monitorCmd.ShowDetailedStats(*granularity); err != nil {
-			log.Fatalf("显示详细统计失败: %v", err)
+
+	case "trends":
+		trendsFlags := flag.NewFlagSet("trends", flag.ExitOnError)
+		days := trendsFlags.Int("days", 7, "趋势分析天数")
+		trendsFlags.Parse(flag.Args()[1:])
+
+		if err := monitorCmd.ShowTrends(*days); err != nil {
+			log.Fatalf("显示趋势失败: %v", err)
 		}
+
 	case "export":
-		filename := "process-tracker-export.json"
-		if flag.NArg() > 1 {
-			filename = flag.Arg(1)
+		exportFlags := flag.NewFlagSet("export", flag.ExitOnError)
+		format := exportFlags.String("format", "json", "导出格式 (json/csv)")
+		filename := exportFlags.String("output", "", "输出文件名")
+		exportFlags.Parse(flag.Args()[1:])
+
+		if *filename == "" {
+			if *format == "csv" {
+				*filename = "process-tracker-export.csv"
+			} else {
+				*filename = "process-tracker-export.json"
+			}
 		}
-		if err := monitorCmd.ExportData(filename); err != nil {
+
+		if err := monitorCmd.ExportData(*filename, *format); err != nil {
 			log.Fatalf("导出数据失败: %v", err)
 		}
-	case "help":
-		cmd.PrintUsage(Version)
+
 	default:
 		fmt.Printf("❌ 未知命令: %s\n\n", command)
 		cmd.PrintUsage(Version)
 		os.Exit(1)
 	}
+}
+
+// parseStatsFlags parses statistics command flags
+func parseStatsFlags(args []string) cmd.StatsOptions {
+	statsFlags := flag.NewFlagSet("stats", flag.ExitOnError)
+
+	opts := cmd.StatsOptions{}
+	statsFlags.StringVar(&opts.Granularity, "g", "simple", "统计粒度: simple/detailed/full")
+	statsFlags.StringVar(&opts.SortBy, "s", "", "排序: cpu/memory/time/disk/network")
+	statsFlags.StringVar(&opts.Filter, "f", "", "按进程名筛选")
+	statsFlags.StringVar(&opts.Category, "c", "", "按分类筛选")
+	statsFlags.IntVar(&opts.Top, "n", 0, "显示前N条 (0=全部)")
+	statsFlags.BoolVar(&opts.ShowSummary, "summary", true, "显示汇总统计")
+
+	statsFlags.Parse(args)
+	return opts
 }
