@@ -30,6 +30,12 @@ type WebConfig struct {
 type StorageConfig struct {
 	MaxSizeMB int `yaml:"max_size_mb"` // Maximum total storage size in MB (default: 100)
 	KeepDays  int `yaml:"keep_days"`   // Keep data for N days, 0=forever (default: 7)
+
+	// SQLite特有配置
+	Type           string `yaml:"type"`             // 存储类型: "csv", "sqlite"
+	SQLitePath     string `yaml:"sqlite_path"`     // SQLite数据库路径
+	SQLiteWAL      bool   `yaml:"sqlite_wal"`      // 是否启用WAL模式
+	SQLiteCacheSize int    `yaml:"sqlite_cache_size"` // SQLite缓存大小(KB)
 }
 
 // ResourceRecord represents a single resource usage record
@@ -50,6 +56,7 @@ type ResourceRecord struct {
 	WorkingDir           string    `json:"working_dir"`
 	Category             string    `json:"category"`
 	PID                  int32     `json:"pid"`         // Process ID
+	PPID                 int32     `json:"ppid"`        // Parent Process ID
 	CreateTime           int64     `json:"create_time"` // Process start time (Unix timestamp)
 	CPUTime              float64   `json:"cpu_time"`    // Cumulative CPU time in seconds
 }
@@ -78,6 +85,16 @@ type ResourceStats struct {
 	ProcessStartTime time.Time     `json:"process_start_time"` // Process actual start time
 	TotalCPUTime     time.Duration `json:"total_cpu_time"`     // Total CPU time consumed
 	AvgCPUTime       float64       `json:"avg_cpu_time"`       // Average CPU time per sample
+}
+
+// ProcessTreeNode represents a node in the process tree hierarchy
+type ProcessTreeNode struct {
+	Process      ResourceRecord       `json:"process"`        // Process self information
+	Children     []*ProcessTreeNode   `json:"children"`       // Child processes
+	TotalCPU     float64             `json:"total_cpu"`      // Total CPU including children (normalized)
+	TotalMemory  float64             `json:"total_memory"`   // Total memory including children (MB)
+	ChildCount   int                 `json:"child_count"`    // Number of child processes
+	IsExpanded   bool                `json:"is_expanded"`    // UI expansion state (for frontend)
 }
 
 // ActivityConfig represents activity detection configuration
@@ -133,6 +150,10 @@ func GetDefaultStorageConfig() StorageConfig {
 	return StorageConfig{
 		MaxSizeMB: 100, // 100MB total storage
 		KeepDays:  7,   // Keep 7 days
+		Type:           "csv", // 默认使用CSV存储
+		SQLitePath:     "",    // 使用默认路径
+		SQLiteWAL:      true,  // 启用WAL模式
+		SQLiteCacheSize: 2000,  // 2KB缓存
 	}
 }
 

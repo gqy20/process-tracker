@@ -1,11 +1,10 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"os"
-	"syscall"
+	"strconv"
 	"time"
 
 	"github.com/yourusername/process-tracker/cmd"
@@ -13,7 +12,7 @@ import (
 )
 
 // Version is set during build
-var Version = "0.4.0"
+var Version = "0.4.1"
 
 // App wraps the core.App with CLI-specific functionality
 type App struct {
@@ -28,229 +27,217 @@ func NewApp(dataFile string, interval time.Duration, config core.Config) *App {
 }
 
 func main() {
-	// Global flags
-	configPath := flag.String("config", os.ExpandEnv("$HOME/.process-tracker/config.yaml"), "配置文件路径")
-	dataFile := flag.String("data-file", os.ExpandEnv("$HOME/.process-tracker/process-tracker.log"), "数据文件路径")
-	help := flag.Bool("help", false, "显示帮助信息")
-
-	flag.Parse()
-
-	if *help || flag.NArg() == 0 {
-		cmd.PrintUsage(Version)
+	// 简化的命令行参数处理
+	if len(os.Args) < 2 {
+		printUsage()
 		return
 	}
 
-	// Load configuration
-	config, err := cmd.LoadConfig(*configPath)
+	command := os.Args[1]
+
+	// 加载配置
+	config, err := cmd.LoadConfig(os.ExpandEnv("$HOME/.process-tracker/config.yaml"))
 	if err != nil {
 		log.Printf("Warning: Failed to load config, using defaults: %v", err)
 		config = core.GetDefaultConfig()
 	}
 
-	command := flag.Arg(0)
-
-	// Handle version command early
-	if command == "version" {
-		fmt.Printf("进程跟踪器版本 %s\n", Version)
-		return
-	}
-
-	if command == "help" {
-		cmd.PrintUsage(Version)
-		return
-	}
-
-	// Initialize daemon manager for process control
+	// 初始化daemon管理器
 	dataDir := os.ExpandEnv("$HOME/.process-tracker")
 	daemon := core.NewDaemonManager(dataDir)
 
-	// Handle daemon control commands
-	switch command {
-	case "stop":
-		handleStop(daemon)
-		return
-	case "status":
-		handleStatus(daemon)
-		return
-	case "restart":
-		handleRestart(daemon, *dataFile, config)
-		return
-	}
-
-	// Create app
-	app := NewApp(*dataFile, 5*time.Second, config)
-	monitorCmd := cmd.NewMonitoringCommands(app.App)
-
-	// Handle commands with subcommand flags
+	// 处理5个核心命令
 	switch command {
 	case "start":
-		// Check if already running
-		if running, pid, _ := daemon.IsRunning(); running {
-			fmt.Printf("❌ 进程已在运行 (PID: %d)\n", pid)
-			fmt.Println("💡 使用 'process-tracker stop' 停止，或 'process-tracker restart' 重启")
-			os.Exit(1)
-		}
-
-		startFlags := flag.NewFlagSet("start", flag.ExitOnError)
-		intervalSec := startFlags.Int("interval", 5, "监控间隔(秒)")
-		webEnabled := startFlags.Bool("web", false, "启用Web界面")
-		webPort := startFlags.String("web-port", "", "Web服务器端口 (默认: 8080)")
-		startFlags.Parse(flag.Args()[1:])
-
-		interval := time.Duration(*intervalSec) * time.Second
-		if interval <= 0 {
-			interval = 5 * time.Second
-		}
-		app.Interval = interval
-
-		// Write PID file
-		if err := daemon.WritePID(); err != nil {
-			log.Printf("Warning: Failed to write PID file: %v", err)
-		}
-		defer daemon.RemovePID()
-
-		// Start web server if enabled
-		if *webEnabled || config.Web.Enabled {
-			port := config.Web.Port
-			if *webPort != "" {
-				port = *webPort
-			}
-			webServer := cmd.NewWebServer(app.App, config.Web.Host, port)
-			go func() {
-				if err := webServer.Start(); err != nil {
-					log.Printf("Web服务器错误: %v", err)
-				}
-			}()
-		}
-
-		if err := monitorCmd.StartMonitoring(); err != nil {
-			log.Fatalf("启动监控失败: %v", err)
-		}
-
+		handleStart(daemon, config)
+	case "stop":
+		handleStop(daemon)
+	case "status":
+		handleStatus(daemon)
+	case "stats":
+		handleStats(config)
 	case "web":
-		webFlags := flag.NewFlagSet("web", flag.ExitOnError)
-		webPort := webFlags.String("port", config.Web.Port, "Web服务器端口")
-		webHost := webFlags.String("host", config.Web.Host, "Web服务器主机")
-		webFlags.Parse(flag.Args()[1:])
-
-		if err := app.Initialize(); err != nil {
-			log.Fatalf("初始化失败: %v", err)
-		}
-
-		// Start monitoring in background
-		go func() {
-			if err := monitorCmd.StartMonitoring(); err != nil {
-				log.Printf("监控启动失败: %v", err)
-			}
-		}()
-
-		// Start web server
-		webServer := cmd.NewWebServer(app.App, *webHost, *webPort)
-		if err := webServer.Start(); err != nil {
-			log.Fatalf("Web服务器启动失败: %v", err)
-		}
-
-	case "today", "week", "month", "details":
-		opts := parseStatsFlags(flag.Args()[1:])
-		var period time.Duration
-		switch command {
-		case "today":
-			period = 24 * time.Hour
-		case "week":
-			period = 7 * 24 * time.Hour
-		case "month":
-			period = 30 * 24 * time.Hour
-		case "details":
-			period = 24 * time.Hour
-		}
-
-		if err := monitorCmd.ShowStats(command, period, opts); err != nil {
-			log.Fatalf("显示统计失败: %v", err)
-		}
-
-	case "compare":
-		if err := monitorCmd.CompareStats(flag.Args()[1:]); err != nil {
-			log.Fatalf("对比统计失败: %v", err)
-		}
-
-	case "trends":
-		trendsFlags := flag.NewFlagSet("trends", flag.ExitOnError)
-		days := trendsFlags.Int("days", 7, "趋势分析天数")
-		trendsFlags.Parse(flag.Args()[1:])
-
-		if err := monitorCmd.ShowTrends(*days); err != nil {
-			log.Fatalf("显示趋势失败: %v", err)
-		}
-
-	case "export":
-		exportFlags := flag.NewFlagSet("export", flag.ExitOnError)
-		format := exportFlags.String("format", "json", "导出格式 (json/csv)")
-		filename := exportFlags.String("output", "", "输出文件名")
-		exportFlags.Parse(flag.Args()[1:])
-
-		if *filename == "" {
-			if *format == "csv" {
-				*filename = "process-tracker-export.csv"
-			} else {
-				*filename = "process-tracker-export.json"
-			}
-		}
-
-		if err := monitorCmd.ExportData(*filename, *format); err != nil {
-			log.Fatalf("导出数据失败: %v", err)
-		}
-
-	case "clear-data", "reset":
-		clearFlags := flag.NewFlagSet("clear-data", flag.ExitOnError)
-		force := clearFlags.Bool("force", false, "强制清除不提示确认")
-		clearFlags.Parse(flag.Args()[1:])
-
-		if err := monitorCmd.ClearAllData(*force); err != nil {
-			log.Fatalf("清除数据失败: %v", err)
-		}
-
-	case "test-alert":
-		// Test alert notification
-		testFlags := flag.NewFlagSet("test-alert", flag.ExitOnError)
-		channel := testFlags.String("channel", "feishu", "通知渠道: feishu/dingtalk/wechat")
-		testFlags.Parse(flag.Args()[1:])
-
-		if err := app.Initialize(); err != nil {
-			log.Fatalf("初始化失败: %v", err)
-		}
-
-		if app.App.Config.Alerts.Enabled {
-			fmt.Printf("🔔 测试告警通知 (渠道: %s)...\n", *channel)
-			// Access the alertManager through a public method
-			if err := testAlertNotification(app.App, *channel); err != nil {
-				log.Fatalf("❌ 测试失败: %v", err)
-			}
-			fmt.Println("✅ 测试通知已发送")
-		} else {
-			fmt.Println("⚠️  告警功能未启用，请在配置文件中启用 alerts.enabled")
-		}
-
+		handleWeb(config)
+	case "help", "-h":
+		printUsage()
+	case "version", "-v":
+		fmt.Printf("Process Tracker v%s\n", Version)
 	default:
 		fmt.Printf("❌ 未知命令: %s\n\n", command)
-		cmd.PrintUsage(Version)
+		printUsage()
 		os.Exit(1)
 	}
 }
 
-// parseStatsFlags parses statistics command flags
-func parseStatsFlags(args []string) cmd.StatsOptions {
-	statsFlags := flag.NewFlagSet("stats", flag.ExitOnError)
+// printUsage prints simplified usage information
+func printUsage() {
+	fmt.Printf("Process Tracker v%s\n\n", Version)
+	fmt.Printf("用法:\n")
+	fmt.Printf("  process-tracker <command> [options]\n\n")
+	fmt.Printf("命令:\n")
+	fmt.Printf("  start   启动监控\n")
+	fmt.Printf("  stop    停止监控\n")
+	fmt.Printf("  status  状态\n")
+	fmt.Printf("  stats   统计\n")
+	fmt.Printf("  web     Web界面\n")
+	fmt.Printf("  help    帮助\n")
+	fmt.Printf("  version 版本\n\n")
+	fmt.Printf("选项:\n")
+	fmt.Printf("  -i N    间隔(秒)\n")
+	fmt.Printf("  -w      启动Web\n")
+	fmt.Printf("  -p N    端口\n")
+	fmt.Printf("  -d      今日统计\n")
+	fmt.Printf("  -w      本周统计\n")
+	fmt.Printf("  -m      本月统计\n\n")
+	fmt.Printf("示例:\n")
+	fmt.Printf("  process-tracker start\n")
+	fmt.Printf("  process-tracker start -i 10 -w\n")
+	fmt.Printf("  process-tracker stats -w\n")
+	fmt.Printf("  process-tracker web -p 9090\n")
+}
 
-	opts := cmd.StatsOptions{}
-	statsFlags.StringVar(&opts.Granularity, "g", "simple", "统计粒度: simple/detailed/full")
-	statsFlags.StringVar(&opts.SortBy, "s", "", "排序: cpu/memory/time/disk/network")
-	statsFlags.StringVar(&opts.Filter, "f", "", "按进程名筛选")
-	statsFlags.StringVar(&opts.Category, "c", "", "按分类筛选")
-	statsFlags.IntVar(&opts.Top, "n", 0, "显示前N条 (0=全部)")
-	statsFlags.BoolVar(&opts.ShowSummary, "summary", true, "显示汇总统计")
+// handleStart handles the start command
+func handleStart(daemon *core.DaemonManager, config core.Config) {
+	// Check if already running
+	if running, pid, _ := daemon.IsRunning(); running {
+		fmt.Printf("❌ 进程已在运行 (PID: %d)\n", pid)
+		fmt.Println("💡 使用 'process-tracker stop' 停止")
+		os.Exit(1)
+	}
 
-	statsFlags.Parse(args)
-	return opts
+	// Write PID file
+	if err := daemon.WritePID(); err != nil {
+		log.Printf("Warning: Failed to write PID file: %v", err)
+	}
+
+	// Parse flags for start command
+	interval := 5 * time.Second
+	webEnabled := false
+	webPort := config.Web.Port
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-i":
+			if i+1 < len(os.Args) {
+				if sec, err := strconv.Atoi(os.Args[i+1]); err == nil && sec > 0 {
+					interval = time.Duration(sec) * time.Second
+					i++
+				}
+			}
+		case "-w":
+			webEnabled = true
+		case "-p":
+			if i+1 < len(os.Args) {
+				webPort = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	// Create app
+	dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
+	app := NewApp(dataFile, interval, config)
+	monitorCmd := cmd.NewMonitoringCommands(app.App)
+
+	// Start web server if enabled
+	if webEnabled || config.Web.Enabled {
+		port := webPort
+		webServer := cmd.NewWebServer(app.App, config.Web.Host, port)
+		go func() {
+			if err := webServer.Start(); err != nil {
+				log.Printf("Web服务器错误: %v", err)
+			}
+		}()
+		fmt.Printf("🚀 启动进程监控 (间隔: %v, Web: http://%s:%s)\n", interval, config.Web.Host, webPort)
+	} else {
+		fmt.Printf("🚀 启动进程监控 (间隔: %v)\n", interval)
+	}
+
+	if err := monitorCmd.StartMonitoring(); err != nil {
+		daemon.RemovePID()
+		log.Fatalf("启动监控失败: %v", err)
+	}
+}
+
+// handleStats handles the stats command
+func handleStats(config core.Config) {
+	// Default to today's stats
+	period := 24 * time.Hour
+	title := "今日统计"
+
+	// Parse stats flags
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-d":
+			period = 24 * time.Hour
+			title = "今日统计"
+		case "-w":
+			period = 7 * 24 * time.Hour
+			title = "本周统计"
+		case "-m":
+			period = 30 * 24 * time.Hour
+			title = "本月统计"
+		}
+	}
+
+	// Create app and show stats
+	dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
+	app := NewApp(dataFile, 5*time.Second, config)
+	monitorCmd := cmd.NewMonitoringCommands(app.App)
+
+	opts := cmd.StatsOptions{
+		Granularity: "simple",
+		ShowSummary: true,
+	}
+
+	if err := monitorCmd.ShowStats(title, period, opts); err != nil {
+		log.Fatalf("显示统计失败: %v", err)
+	}
+}
+
+// handleWeb handles the web command
+func handleWeb(config core.Config) {
+	// Parse web flags
+	host := config.Web.Host
+	port := config.Web.Port
+
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-p":
+			if i+1 < len(os.Args) {
+				port = os.Args[i+1]
+				i++
+			}
+		case "-h":
+			if i+1 < len(os.Args) {
+				host = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	// Create app
+	dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
+	app := NewApp(dataFile, 5*time.Second, config)
+
+	if err := app.Initialize(); err != nil {
+		log.Fatalf("初始化失败: %v", err)
+	}
+
+	// Start monitoring in background
+	monitorCmd := cmd.NewMonitoringCommands(app.App)
+	go func() {
+		if err := monitorCmd.StartMonitoring(); err != nil {
+			log.Printf("监控启动失败: %v", err)
+		}
+	}()
+
+	// Start web server
+	webServer := cmd.NewWebServer(app.App, host, port)
+	fmt.Printf("🌐 启动Web界面: http://%s:%s\n", host, port)
+	if err := webServer.Start(); err != nil {
+		log.Fatalf("Web服务器启动失败: %v", err)
+	}
 }
 
 // handleStop handles the stop command
@@ -302,11 +289,11 @@ func handleStatus(daemon *core.DaemonManager) {
 
 	fmt.Println("📊 Process Tracker 状态")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	if status == "running" {
 		fmt.Printf("状态: 🟢 运行中\n")
 		fmt.Printf("PID:  %d\n", pid)
-		
+
 		// Additional info if available
 		dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
 		if info, err := os.Stat(dataFile); err == nil {
@@ -316,49 +303,5 @@ func handleStatus(daemon *core.DaemonManager) {
 		}
 	} else {
 		fmt.Printf("状态: 🔴 已停止\n")
-	}
-}
-
-// testAlertNotification tests alert notification
-func testAlertNotification(app *core.App, channel string) error {
-	// Use reflection or add a public method to access alertManager
-	// For now, we'll create a temporary alert manager with the same config
-	if !app.Config.Alerts.Enabled {
-		return fmt.Errorf("alerts not enabled in configuration")
-	}
-	
-	testManager := core.NewAlertManager(app.Config.Alerts, app.Config.Notifiers)
-	return testManager.TestNotifier(channel)
-}
-
-// handleRestart handles the restart command
-func handleRestart(daemon *core.DaemonManager, dataFile string, config core.Config) {
-	fmt.Println("🔄 重启进程...")
-	
-	// Stop if running
-	if running, pid, _ := daemon.IsRunning(); running {
-		fmt.Printf("🛑 停止现有进程 (PID: %d)...\n", pid)
-		if err := daemon.Stop(); err != nil {
-			fmt.Printf("❌ 停止失败: %v\n", err)
-			os.Exit(1)
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	// Start new instance
-	fmt.Println("🚀 启动新进程...")
-	
-	// Re-exec the current process with start command
-	args := []string{os.Args[0], "start"}
-	
-	// Preserve web flag if it was enabled
-	if config.Web.Enabled {
-		args = append(args, "--web")
-	}
-	
-	// Execute new process
-	if err := syscall.Exec(os.Args[0], args, os.Environ()); err != nil {
-		fmt.Printf("❌ 启动失败: %v\n", err)
-		os.Exit(1)
 	}
 }

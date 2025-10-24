@@ -1,0 +1,23 @@
+# Process Tracker 简化配置文件
+# 位置: ~/.process-tracker/config.yaml
+
+# 存储配置
+storage:
+  type: "sqlite"              # 存储类型: csv/sqlite
+  sqlite_path: "~/.process-tracker/process-tracker.db"
+  max_file_size_mb: 50        # 最大文件大小 (仅CSV)
+  keep_days: 7                # 保留天数
+
+# Web界面配置
+web:
+  enabled: true               # 启用Web界面
+  host: "0.0.0.0"            # 绑定主机
+  port: "8080"               # 端口号
+
+# 监控配置
+monitoring:
+  interval: "5s"              # 监控间隔
+
+# Docker监控 (自动检测)
+docker:
+  enabled: true

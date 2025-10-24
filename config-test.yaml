@@ -1,0 +1,55 @@
+# Process Tracker 配置文件 (SQLite测试版本)
+
+# 核心设置
+enable_smart_categories: true
+
+# 存储配置
+storage:
+  # 存储类型: "csv" (默认) 或 "sqlite"
+  type: "sqlite"
+
+  # CSV文件路径 (仅在type=csv时使用)
+  file_path: "~/.process-tracker/process-tracker.log"
+
+  # SQLite数据库路径 (仅在type=sqlite时使用)
+  sqlite_path: "~/.process-tracker/test.db"
+
+  # SQLite特有配置
+  sqlite_wal: true              # 启用WAL模式 (提高并发性能)
+  sqlite_cache_size: 2000       # 缓存大小 (KB)
+
+  # 文件管理配置
+  max_file_size_mb: 50          # 最大文件大小 (MB)
+  max_files: 5                  # 最大文件数量
+  keep_days: 7                  # 保留天数
+  auto_cleanup: true            # 自动清理
+
+# Docker监控配置
+docker:
+  enabled: true                 # 自动检测并启用Docker监控
+
+# Web界面配置
+web:
+  enabled: false                # 启用Web界面
+  host: "0.0.0.0"              # 绑定主机
+  port: "18080"                # 端口号
+
+# 告警配置
+alerts:
+  enabled: false                # 启用告警
+  suppress_duration: 30         # 告警抑制时间 (分钟)
+  rules: []                     # 告警规则列表
+
+# 通知器配置
+notifiers: {}                   # 各种通知器配置 (飞书、钉钉、微信等)
+
+# 监控配置
+monitoring:
+  # 实时监控配置 (未来功能)
+  interval: "5s"               # 监控间隔
+  realtime: false              # 启用实时模式
+
+  # 事件阈值配置 (未来功能)
+  event_thresholds:
+    cpu: 80                     # CPU使用率阈值 (%)
+    memory: 90                  # 内存使用率阈值 (%)

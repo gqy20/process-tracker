@@ -247,6 +247,10 @@ func (ws *WebServer) handleProcesses(w http.ResponseWriter, r *http.Request) {
 	if sortBy == "" {
 		sortBy = "cpu"
 	}
+	viewMode := r.URL.Query().Get("view")
+	if viewMode == "" {
+		viewMode = "flat" // Default to flat view for backward compatibility
+	}
 
 	// Get recent records (5 minutes for better robustness)
 	records, err := ws.readRecentRecords(5 * time.Minute)
@@ -255,10 +259,35 @@ func (ws *WebServer) handleProcesses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get latest processes
+	// Return tree view if requested
+	if viewMode == "tree" {
+		// Get latest record for each process (using PID as unique identifier)
+		latest := make(map[int32]core.ResourceRecord)
+		for _, r := range records {
+			if existing, ok := latest[r.PID]; !ok || r.Timestamp.After(existing.Timestamp) {
+				latest[r.PID] = r
+			}
+		}
+		
+		// Convert map to slice
+		var latestRecords []core.ResourceRecord
+		for _, r := range latest {
+			latestRecords = append(latestRecords, r)
+		}
+		
+		tree := core.BuildProcessTree(latestRecords)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"tree":    tree,
+			"view":    "tree",
+			"sort_by": sortBy,
+		})
+		return
+	}
+
+	// Get latest processes as ProcessSummary for flat view
 	processes := ws.getLatestProcesses(records)
 
-	// Sort processes
+	// Sort processes for flat view
 	switch sortBy {
 	case "cpu":
 		sort.Slice(processes, func(i, j int) bool {
@@ -277,6 +306,7 @@ func (ws *WebServer) handleProcesses(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"processes": processes,
 		"sort_by":   sortBy,
+		"view":      "flat",
 	})
 }
 

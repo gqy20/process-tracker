@@ -12,6 +12,7 @@ import (
 // ProcessInfo represents process information for monitoring
 type ProcessInfo struct {
 	Pid         int32
+	Ppid        int32   // Parent Process ID
 	Name        string
 	Cmdline     string
 	Cwd         string
@@ -32,8 +33,8 @@ type App struct {
 	Interval time.Duration
 	Config   Config
 
-	// Storage manager
-	storage *Manager
+	// Storage interface (supports both CSV and SQLite)
+	storage Storage
 
 	// Docker monitoring
 	dockerMonitor *DockerMonitor
@@ -44,9 +45,8 @@ type App struct {
 
 // NewApp creates a new application instance
 func NewApp(dataFile string, interval time.Duration, config Config) *App {
-	// Always use storage manager with optimized defaults
-	useStorageMgr := true // Force enable storage manager for rotation
-	storageMgr := NewManager(dataFile, 100, useStorageMgr, config.Storage)
+	// Create storage based on configuration
+	storage := NewStorage(dataFile, 100, true, config.Storage)
 
 	// Create Docker monitor
 	dockerMonitor, err := NewDockerMonitor(config)
@@ -66,7 +66,7 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		DataFile:      dataFile,
 		Interval:      interval,
 		Config:        config,
-		storage:       storageMgr,
+		storage:       storage,
 		dockerMonitor: dockerMonitor,
 		alertManager:  alertManager,
 	}
@@ -131,6 +131,11 @@ func (a *App) ReadResourceRecords(filePath string) ([]ResourceRecord, error) {
 
 // CalculateResourceStats calculates resource statistics for a given time period
 func (a *App) CalculateResourceStats(period time.Duration) ([]ResourceStats, error) {
+	// Initialize storage if not already initialized
+	if err := a.storage.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
 	records, err := a.ReadResourceRecords(a.DataFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read records: %w", err)
@@ -338,7 +343,7 @@ func (a *App) CleanOldData(keepDays int) error {
 
 // GetTotalRecords returns the total number of records
 func (a *App) GetTotalRecords() (int, error) {
-	return a.storage.GetTotalRecords()
+	return a.storage.GetRecordCount()
 }
 
 // truncateString truncates string to specified length
@@ -375,6 +380,9 @@ func (a *App) GetProcessInfo(p *process.Process) (ProcessInfo, error) {
 	info.Name = name
 
 	// Other fields are optional - ignore errors
+	if ppid, err := p.Ppid(); err == nil {
+		info.Ppid = ppid
+	}
 	if cmdline, err := p.Cmdline(); err == nil {
 		info.Cmdline = cmdline
 	}
@@ -428,13 +436,25 @@ func (a *App) getNetworkStats(p *process.Process) (float64, float64) {
 
 // GetCurrentResources gets current resource usage for all processes
 func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
+	// PHASE 1: Get all processes and establish CPU baseline
 	processes, err := process.Processes()
 	if err != nil {
 		return nil, err
 	}
 
-	var records []ResourceRecord
+	// Build process map and establish CPU baseline
+	processMap := make(map[int32]*process.Process)
 	for _, p := range processes {
+		p.CPUPercent() // Establish baseline, ignore return value
+		processMap[p.Pid] = p
+	}
+
+	// PHASE 2: Wait 500ms for CPU sampling
+	time.Sleep(500 * time.Millisecond)
+
+	// PHASE 3: Collect accurate CPU values
+	var records []ResourceRecord
+	for _, p := range processMap {
 		info, err := a.GetProcessInfo(p)
 		if err != nil {
 			continue
@@ -472,6 +492,7 @@ func (a *App) GetCurrentResources() ([]ResourceRecord, error) {
 			WorkingDir:           info.Cwd,
 			Category:             "", // Will be set below
 			PID:                  info.Pid,
+			PPID:                 info.Ppid,
 			CreateTime:           info.CreateTime,
 			CPUTime:              info.CPUTime,
 		}
@@ -544,18 +565,29 @@ func (a *App) GetProcessNameWithContext(info ProcessInfo) string {
 
 // CollectAndSaveData collects process data and saves it to storage
 func (a *App) CollectAndSaveData() error {
-	// Get all processes
+	// PHASE 1: Get all processes and establish CPU baseline
 	processes, err := process.Processes()
 	if err != nil {
 		return fmt.Errorf("failed to get processes: %w", err)
 	}
 
+	// Build process map and establish CPU baseline
+	processMap := make(map[int32]*process.Process)
+	for _, p := range processes {
+		p.CPUPercent() // Establish baseline, ignore return value
+		processMap[p.Pid] = p
+	}
+
+	// PHASE 2: Wait 500ms for CPU sampling
+	time.Sleep(500 * time.Millisecond)
+
+	// PHASE 3: Collect accurate CPU values
 	var records []ResourceRecord
 	totalProcesses := len(processes)
 	filteredCount := 0
 	errorCount := 0
 
-	for _, p := range processes {
+	for _, p := range processMap {
 		info, err := a.GetProcessInfo(p)
 		if err != nil {
 			errorCount++
@@ -589,6 +621,7 @@ func (a *App) CollectAndSaveData() error {
 			WorkingDir:           info.Cwd,
 			Category:             IdentifyApplication(name, info.Cmdline, a.Config.EnableSmartCategories),
 			PID:                  info.Pid,
+			PPID:                 info.Ppid,
 			CreateTime:           info.CreateTime,
 			CPUTime:              info.CPUTime,
 		}

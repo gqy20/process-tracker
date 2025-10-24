@@ -1,250 +1,183 @@
-# Process Tracker
+# Process Tracker - 进程监控工具
 
-一个智能的进程监控工具，提供实时Web界面和命令行统计，用于跟踪和分析系统进程的资源使用情况。
-
-## ✨ 主要特性
-
-- 🌐 **Web界面**: 实时可视化仪表板，图表展示CPU/内存趋势
-- 🔔 **智能告警**: 系统级/进程级资源监控，支持飞书/钉钉/企业微信通知
-- 🔍 **实时监控**: CPU、内存、磁盘I/O、Docker容器监控
-- 📊 **智能统计**: 支持简单、详细、完整三种统计粒度
-- 🗂️ **智能分类**: 自动识别应用程序类型（Java、Node.js、Python等）
-- 💾 **存储优化**: 自动文件轮转和压缩，节省90%存储空间
-- 🎛️ **守护进程**: start/stop/restart/status 进程管理
-- 📁 **多平台支持**: Linux、macOS、Windows
-- 📤 **数据导出**: JSON/CSV格式数据导出
+一个简单高效的Linux进程监控工具，提供实时进程资源使用统计和Web界面。
 
 ## 🚀 快速开始
 
 ### 安装
 
 ```bash
-# 克隆仓库
-git clone <repository-url>
-cd process-tracker
+# 编译
+go build -o process-tracker main.go
 
-# 构建（会自动在主目录生成可执行文件）
+# 或者使用构建脚本
 ./build.sh
 ```
 
 ### 基本使用
 
-#### 启动Web界面（推荐）
-
 ```bash
-# 启动Web监控界面
-./process-tracker start --web
+# 查看帮助
+./process-tracker help
 
-# 访问仪表板
-# 浏览器打开任意显示的内网IP地址，例如：
-# http://192.168.1.100:18080
+# 启动监控
+./process-tracker start
+
+# 查看今日统计
+./process-tracker stats
+
+# 启动Web界面
+./process-tracker web
+
+# 查看运行状态
+./process-tracker status
+
+# 停止监控
+./process-tracker stop
 ```
 
-#### 命令行统计
+## 📋 核心命令
 
+Process Tracker 遵循简洁设计原则，只提供5个核心命令：
+
+### 1. start - 启动监控
 ```bash
-# 进程管理
-./process-tracker start          # 后台启动监控
-./process-tracker stop           # 停止监控
-./process-tracker restart --web  # 重启并启用Web
-./process-tracker status         # 查看状态
+./process-tracker start [选项]
 
-# 查看统计
-./process-tracker today          # 今日统计
-./process-tracker week           # 本周统计  
-./process-tracker month          # 本月统计
-./process-tracker details        # 详细统计
+选项:
+  -i N  监控间隔(秒) [默认: 5]
+  -w    同时启动Web界面
+  -p PORT  Web端口
 
-# 数据管理
-./process-tracker export         # 导出数据
-./process-tracker cleanup        # 清理旧数据
-
-# 告警测试
-./process-tracker test-alert     # 测试告警通知
+示例:
+  ./process-tracker start                    # 默认5秒间隔启动
+  ./process-tracker start -i 10              # 10秒间隔
+  ./process-tracker start -w                 # 启动Web界面
+  ./process-tracker start -i 10 -w -p 9090   # 10秒间隔，Web在9090端口
 ```
 
-### 配置告警（可选）
-
+### 2. stop - 停止监控
 ```bash
-# 1. 设置webhook环境变量
-export WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_TOKEN"
-
-# 2. 使用示例配置启动
-./process-tracker --config config-example.yaml start
-
-# 3. 测试告警
-./process-tracker --config config-example.yaml test-alert
+./process-tracker stop
 ```
 
-**告警功能**：
-- ✅ 系统CPU/内存使用率监控
-- ✅ 单个进程异常检测
-- ✅ 支持飞书/钉钉/企业微信
-- ✅ 智能告警抑制避免风暴
+### 3. status - 查看状态
+```bash
+./process-tracker status
+```
 
-详细配置请参考 [ALERTS.md](docs/ALERTS.md)
+### 4. stats - 查看统计
+```bash
+./process-tracker stats [选项]
+
+选项:
+  -d  显示今日统计 (默认)
+  -w  显示本周统计
+  -m  显示本月统计
+
+示例:
+  ./process-tracker stats      # 今日统计
+  ./process-tracker stats -w   # 本周统计
+  ./process-tracker stats -m   # 本月统计
+```
+
+### 5. web - 启动Web界面
+```bash
+./process-tracker web [选项]
+
+选项:
+  -p PORT  Web端口 [默认: 8080]
+  -h HOST  Web主机 [默认: 0.0.0.0]
+
+示例:
+  ./process-tracker web           # 默认配置启动Web
+  ./process-tracker web -p 9090   # Web在9090端口
+```
 
 ## ⚙️ 配置
 
-配置文件位于 `~/.process-tracker.yaml`，首次运行会自动创建默认配置。
-
-### 极简配置（仅3个参数！）
+配置文件位置：`~/.process-tracker/config.yaml`
 
 ```yaml
-# 智能分类（可选，默认启用）
-enable_smart_categories: true  # 自动识别进程类型
-
-# 存储管理（自动轮转和压缩）
+# 存储配置
 storage:
-  max_size_mb: 100    # 最大存储空间(MB)，自动轮转
-  keep_days: 7        # 保留天数，0=永久保留
+  type: "sqlite"              # 存储类型: csv/sqlite
+  sqlite_path: "~/.process-tracker/process-tracker.db"
+  max_file_size_mb: 50        # 最大文件大小 (CSV)
+  keep_days: 7                # 保留天数
 
-# Docker监控（可选，自动检测）
-docker:
-  enabled: true       # 启用Docker容器监控
+# Web界面配置
+web:
+  enabled: true               # 启用Web界面
+  host: "0.0.0.0"            # 绑定主机
+  port: "8080"               # 端口号
+
+# 监控配置
+monitoring:
+  interval: "5s"              # 监控间隔
 ```
 
-**零配置运行**：不需要配置文件，直接运行即可！所有参数都有智能默认值。
+## 📊 数据存储
 
-**智能特性**：
-- ✅ 自动文件轮转（每个文件 ~20MB）
-- ✅ 自动压缩旧文件（1天后）
-- ✅ 自动清理过期数据（根据keep_days）
-- ✅ 自动检测Docker环境
-- ✅ 智能进程分类
+支持两种存储方式：
 
-> **设计理念**: 遵循"简单优先"原则，只保留最必要的配置。高级功能（如进程控制、资源配额等）请使用专门工具（systemd、supervisor等）配合使用。
+### CSV存储 (默认)
+- 文件路径：`~/.process-tracker/process-tracker.log`
+- 简单易读，兼容性好
+- 适合小规模监控
 
-## 📈 监控指标
+### SQLite存储 (推荐)
+- 数据库路径：`~/.process-tracker/process-tracker.db`
+- 高性能，支持复杂查询
+- 适合长期监控和大数据量
 
-### 系统级指标
-- **CPU使用率（归一化）**: 0-100%表示整个系统的CPU使用率
-  - 例如：72核系统，单进程100% CPU显示为1.39%
-- **内存使用**: MB和百分比双重显示
-  - 例如：24GB (7.52%) - 一目了然系统压力
-
-### 进程级指标
-- **CPU**: 原始CPU百分比 + 归一化百分比
-- **内存**: 绝对值(MB) + 占系统百分比
-- **线程数**: 进程线程数量
-- **磁盘I/O**: 读取和写入数据量(MB)
-- **进程信息**: PID、启动时间、CPU累积时间
-- **活跃状态**: 基于CPU和内存使用的智能检测
-
-### Docker监控
-- **容器统计**: CPU、内存、磁盘、网络流量
-- **自动检测**: 自动发现并监控运行中的容器
-- **分类标识**: docker:容器名 格式显示
-
-## 🏗️ 架构特点
-
-- **高效缓冲**: 批量写入减少I/O操作
-- **向后兼容**: 支持多种数据格式版本
-- **优雅关闭**: 完整的信号处理
-- **资源友好**: 低系统开销
-- **可扩展**: 模块化设计便于扩展
-
-## 📦 版本发布
-
-每个版本都会为以下平台构建：
-
-- Linux AMD64
-- Linux ARM64
-- macOS Intel (AMD64)
-- macOS ARM64 (Apple Silicon)
-- Windows AMD64
-
-## 🛠️ 开发
-
-### 构建项目
-
+从CSV迁移到SQLite：
 ```bash
-# 构建所有平台版本
-./build.sh
+# 迁移数据（备份原始CSV文件）
+./process-tracker migrate-to-sqlite
 
-# 手动构建当前平台
-go build -ldflags="-X main.Version=0.3.7" -o process-tracker .
+# 指定自定义路径
+./process-tracker migrate-to-sqlite --sqlite-path /path/to/database.db
 ```
 
-### 项目结构
+## 🌐 Web界面
 
-```
-process-tracker/
-├── main.go              # 主程序入口
-├── core/                 # 核心功能模块
-│   ├── app.go           # 应用核心逻辑
-│   ├── types.go         # 数据类型定义
-│   ├── unified_monitor.go  # 统一监控器
-│   └── storage_manager.go # 存储管理
-├── tests/                # 测试文件
-│   ├── unit/            # 单元测试
-│   │   ├── app_test.go
-│   │   ├── unified_monitor_test.go
-│   │   └── bio_tools_manager_test.go
-│   └── README.md        # 测试文档
-├── releases/             # 自动构建版本
-│   └── v0.3.7/          # 版本目录
-├── .git/hooks/          # Git hooks
-├── build.sh             # 构建脚本
-├── CLAUDE.md           # 开发文档
-└── README.md           # 项目说明
-```
+Web界面提供：
+- 实时进程监控
+- 历史数据统计
+- 进程资源使用图表
+- 系统概览
 
-### 自动构建
+默认地址：http://localhost:8080
 
-项目配置了 Git post-commit hook，每次提交后会自动：
+## 📈 统计功能
 
-1. **自动版本检测**: 从 `main.go` 中读取当前版本
-2. **多平台构建**: 为支持的平台构建可执行文件
-3. **文件组织**: 构建文件存储在 `releases/v{VERSION}/` 目录
-4. **构建报告**: 显示构建状态和文件大小
+统计信息包括：
+- CPU使用率
+- 内存使用量
+- 磁盘I/O
+- 网络流量
+- 进程活跃时间
+- 进程分类统计
 
-#### 构建的平台版本
-- Linux AMD64 (当前平台)
-- macOS Intel (AMD64)
-- macOS ARM64 (Apple Silicon)
-- Linux ARM64
+## 🔧 系统要求
 
-#### 自动构建文件位置
-```
-releases/v0.3.7/
-├── process-tracker           # Linux AMD64
-├── process-tracker-macos      # macOS Intel
-├── process-tracker-macos-arm64 # macOS ARM64
-└── process-tracker-linux-arm64 # Linux ARM64
-```
+- Linux操作系统
+- Go 1.19+
+- 超级用户权限 (读取进程信息)
 
-## 📚 文档
+## 📝 设计原则
 
-- [告警配置指南](docs/ALERTS.md) - 告警功能完整说明
-- [Web快速开始](docs/QUICKSTART.md) - Web界面使用指南
-- [功能详解](docs/FEATURES.md) - CPU归一化、内存百分比等功能说明
-- [兼容性说明](docs/COMPATIBILITY.md) - 平台兼容性和GLIBC问题解决⭐
-- [开发指南](docs/development.md) - 贡献代码前请阅读
-- [AI开发助手](CLAUDE.md) - AI助手的项目架构说明
+遵循以下设计原则：
+- **简洁性**：只提供核心功能，避免过度设计
+- **实用性**：专注于实际监控需求
+- **性能**：高效的资源监控和数据存储
+- **兼容性**：支持多种存储方式
 
-## 🆕 最新更新 (v0.4.0)
+## 🤝 贡献
 
-### 关键Bug修复
-- ✅ **修复同名进程覆盖问题** - 6个nginx worker现在能全部显示
-- ✅ **修复数据字段缺失** - 内存百分比、分类、命令完整显示
-- ✅ **修复CPU显示不一致** - 统一使用归一化值（0-100%）
-
-### 功能增强
-- ✅ **时间窗口扩大5倍** - 提高系统鲁棒性
-- ✅ **完整搜索和过滤** - 支持进程名、命令、分类过滤
-- ✅ **测试覆盖** - 28个测试全部通过（告警、存储、错误处理）
-
-详细更新请查看 [发布说明](docs/release-notes.md)
+欢迎提交Issue和Pull Request来改进这个工具。
 
 ## 📄 许可证
 
 MIT License
-
-## 🤝 贡献
-
-欢迎提交Issue和Pull Request！
-
-开发前请阅读：
-- [CLAUDE.md](CLAUDE.md) - 项目架构和设计理念
-- [docs/development.md](docs/development.md) - 开发指南

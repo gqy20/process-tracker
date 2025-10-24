@@ -389,6 +389,55 @@ func (m *Manager) GetTotalRecords() (int, error) {
 	return count, scanner.Err()
 }
 
+// GetRecordCount returns the total number of records (alias for GetTotalRecords for interface compatibility)
+func (m *Manager) GetRecordCount() (int, error) {
+	return m.GetTotalRecords()
+}
+
+// GetStorageInfo 获取存储信息
+func (m *Manager) GetStorageInfo() StorageInfo {
+	info := StorageInfo{
+		Type:     "csv",
+		FilePath: m.dataFile,
+	}
+
+	// 获取记录总数
+	if count, err := m.GetRecordCount(); err == nil {
+		info.TotalRecords = count
+	}
+
+	// 获取文件大小
+	if stat, err := os.Stat(m.dataFile); err == nil {
+		info.TotalSize = stat.Size()
+		info.LastModified = stat.ModTime()
+	}
+
+	// 获取最早和最新记录时间
+	// 对于CSV文件，这里简单处理，实际可以通过读取文件解析时间
+	info.OldestRecord = time.Now() // 默认值
+	info.NewestRecord = time.Now() // 默认值
+
+	return info
+}
+
+// ReadRecordsByTimeRange 按时间范围读取记录 (CSV实现)
+func (m *Manager) ReadRecordsByTimeRange(start, end time.Time) ([]ResourceRecord, error) {
+	// 读取所有记录，然后过滤
+	allRecords, err := m.ReadRecords(m.dataFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var filteredRecords []ResourceRecord
+	for _, record := range allRecords {
+		if record.Timestamp.After(start) && record.Timestamp.Before(end) {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	return filteredRecords, nil
+}
+
 // Private helper methods
 
 func (m *Manager) initializeFile() error {
