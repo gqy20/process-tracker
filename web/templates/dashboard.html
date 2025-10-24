@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .status-card {
+            transition: transform 0.2s;
+        }
+        .status-card:hover {
+            transform: translateY(-2px);
+        }
+        .process-row:hover {
+            background-color: #f9fafb;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .updating {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-gray-900">Process Tracker</h1>
+                    <span class="px-2 py-1 text-xs font-semibold text-green-800 bg-green-100 rounded-full">
+                        运行中
+                    </span>
+                </div>
+                <nav class="flex space-x-4">
+                    <a href="/" class="text-blue-600 font-medium">概览</a>
+                    <a href="/tasks" class="text-gray-600 hover:text-blue-600">任务</a>
+                    <a href="/processes" class="text-gray-600 hover:text-blue-600">进程</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- System Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="status-card bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-blue-100 rounded-lg">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">CPU使用率</p>
+                        <p class="text-2xl font-semibold text-gray-900">{{.SystemStats.CPUUsage}}%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-card bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-100 rounded-lg">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">内存使用</p>
+                        <p class="text-2xl font-semibold text-gray-900">{{.SystemStats.MemoryUsage}}%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-card bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-purple-100 rounded-lg">
+                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">进程数</p>
+                        <p class="text-2xl font-semibold text-gray-900">{{.SystemStats.ProcessCount}}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-card bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-orange-100 rounded-lg">
+                        <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">活跃进程</p>
+                        <p class="text-2xl font-semibold text-gray-900">{{.SystemStats.ActiveCount}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Tasks Section -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">最近任务</h2>
+                    <a href="/tasks" class="text-sm text-blue-600 hover:text-blue-800">查看全部</a>
+                </div>
+                <div class="space-y-3" id="tasks-list">
+                    {{range .Tasks}}
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-2 h-2 {{if eq .Status "running"}}bg-green-500{{else if eq .Status "completed"}}bg-blue-500{{else}}bg-gray-400{{end}} rounded-full"></div>
+                            <div>
+                                <p class="font-medium text-gray-900">{{.Name}}</p>
+                                <p class="text-sm text-gray-500">{{.Command}}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-medium text-gray-900">{{.Status}}</p>
+                            <p class="text-xs text-gray-500">{{.CreatedAt.Format "15:04"}}</p>
+                        </div>
+                    </div>
+                    {{else}}
+                    <p class="text-gray-500 text-center py-4">暂无任务</p>
+                    {{end}}
+                </div>
+            </div>
+
+            <!-- Top Processes -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Top 进程</h2>
+                    <a href="/processes" class="text-sm text-blue-600 hover:text-blue-800">查看全部</a>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead>
+                            <tr class="border-b">
+                                <th class="text-left py-2 text-xs font-medium text-gray-500 uppercase">PID</th>
+                                <th class="text-left py-2 text-xs font-medium text-gray-500 uppercase">进程</th>
+                                <th class="text-left py-2 text-xs font-medium text-gray-500 uppercase">CPU</th>
+                                <th class="text-left py-2 text-xs font-medium text-gray-500 uppercase">内存</th>
+                                <th class="text-left py-2 text-xs font-medium text-gray-500 uppercase">状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="processes-table">
+                            {{range .Processes}}
+                            <tr class="process-row border-b">
+                                <td class="py-2 text-sm text-gray-900">{{.PID}}</td>
+                                <td class="py-2">
+                                    <p class="text-sm font-medium text-gray-900 truncate" title="{{.Command}}">{{.Name}}</p>
+                                </td>
+                                <td class="py-2 text-sm text-gray-900">{{printf "%.1f" .CPUPercent}}%</td>
+                                <td class="py-2 text-sm text-gray-900">{{printf "%.1f" .MemoryMB}}MB</td>
+                                <td class="py-2">
+                                    <span class="px-2 py-1 text-xs font-medium rounded-full {{if eq .Status "active"}}text-green-800 bg-green-100{{else}}text-gray-800 bg-gray-100{{end}}">
+                                        {{.Status}}
+                                    </span>
+                                </td>
+                            </tr>
+                            {{else}}
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-gray-500">暂无进程数据</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">系统资源趋势</h2>
+                <canvas id="resourceChart" width="400" height="200"></canvas>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">进程分类统计</h2>
+                <canvas id="categoryChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Auto-refresh every 5 seconds
+        function refreshData() {
+            fetch('/api/dashboard')
+                .then(response => response.json())
+                .then(data => {
+                    updateDashboard(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updateDashboard(data) {
+            // Update tasks list
+            const tasksList = document.getElementById('tasks-list');
+            if (tasksList && data.tasks) {
+                tasksList.innerHTML = data.tasks.map(task => `
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-2 h-2 ${task.status === 'running' ? 'bg-green-500' : task.status === 'completed' ? 'bg-blue-500' : 'bg-gray-400'} rounded-full"></div>
+                            <div>
+                                <p class="font-medium text-gray-900">${task.name}</p>
+                                <p class="text-sm text-gray-500">${task.command}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-medium text-gray-900">${task.status}</p>
+                            <p class="text-xs text-gray-500">${new Date(task.createdAt).toLocaleTimeString()}</p>
+                        </div>
+                    </div>
+                `).join('') || '<p class="text-gray-500 text-center py-4">暂无任务</p>';
+            }
+
+            // Update processes table
+            const processesTable = document.getElementById('processes-table');
+            if (processesTable && data.processes) {
+                processesTable.innerHTML = data.processes.slice(0, 10).map(process => `
+                    <tr class="process-row border-b">
+                        <td class="py-2 text-sm text-gray-900">${process.pid}</td>
+                        <td class="py-2">
+                            <p class="text-sm font-medium text-gray-900 truncate" title="${process.command}">${process.name}</p>
+                        </td>
+                        <td class="py-2 text-sm text-gray-900">${process.cpuPercent.toFixed(1)}%</td>
+                        <td class="py-2 text-sm text-gray-900">${process.memoryMb.toFixed(1)}MB</td>
+                        <td class="py-2">
+                            <span class="px-2 py-1 text-xs font-medium rounded-full ${process.status === 'active' ? 'text-green-800 bg-green-100' : 'text-gray-800 bg-gray-100'}">
+                                ${process.status}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" class="text-center py-4 text-gray-500">暂无进程数据</td></tr>';
+            }
+        }
+
+        // Initialize charts
+        function initCharts() {
+            // Resource trend chart
+            const resourceCtx = document.getElementById('resourceChart').getContext('2d');
+            new Chart(resourceCtx, {
+                type: 'line',
+                data: {
+                    labels: ['5分钟前', '4分钟前', '3分钟前', '2分钟前', '1分钟前', '现在'],
+                    datasets: [{
+                        label: 'CPU使用率',
+                        data: [20, 22, 25, 23, 26, 25],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: '内存使用率',
+                        data: [40, 42, 45, 44, 46, 45],
+                        borderColor: 'rgb(16, 185, 129)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+
+            // Category chart
+            const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+            new Chart(categoryCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['开发工具', '浏览器', '系统进程', '其他'],
+                    datasets: [{
+                        data: [8, 3, 12, 25],
+                        backgroundColor: [
+                            'rgb(59, 130, 246)',
+                            'rgb(16, 185, 129)',
+                            'rgb(251, 146, 60)',
+                            'rgb(107, 114, 128)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            refreshData();
+            setInterval(refreshData, 5000);
+        });
+    </script>
+</body>
+</html>

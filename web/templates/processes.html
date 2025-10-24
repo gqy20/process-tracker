@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    <style>
+        .process-row:hover {
+            background-color: #f9fafb;
+        }
+        .status-active {
+            background-color: #10b981;
+        }
+        .status-idle {
+            background-color: #6b7280;
+        }
+        @keyframes pulse-green {
+            0%, 100% { background-color: #10b981; }
+            50% { background-color: #34d399; }
+        }
+        .status-active.pulse {
+            animation: pulse-green 2s infinite;
+        }
+        .filter-active {
+            background-color: #3b82f6;
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-gray-900">Process Tracker</h1>
+                    <span class="px-2 py-1 text-xs font-semibold text-green-800 bg-green-100 rounded-full">
+                        运行中
+                    </span>
+                </div>
+                <nav class="flex space-x-4">
+                    <a href="/" class="text-gray-600 hover:text-blue-600">概览</a>
+                    <a href="/tasks" class="text-gray-600 hover:text-blue-600">任务</a>
+                    <a href="/processes" class="text-blue-600 font-medium">进程</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Page Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h2 class="text-3xl font-bold text-gray-900">进程监控</h2>
+                <p class="text-gray-600 mt-2">实时监控系统进程状态</p>
+            </div>
+            <div class="flex items-center space-x-3">
+                <span class="text-sm text-gray-500">自动刷新</span>
+                <div class="w-2 h-2 bg-green-500 rounded-full pulse"></div>
+                <button onclick="refreshProcesses()" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    <span>刷新</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Process Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-blue-100 rounded-lg">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">总进程数</p>
+                        <p class="text-2xl font-semibold text-gray-900" id="total-processes">{{.ProcessCount}}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-100 rounded-lg">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">活跃进程</p>
+                        <p class="text-2xl font-semibold text-gray-900" id="active-processes">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-orange-100 rounded-lg">
+                        <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">平均CPU</p>
+                        <p class="text-2xl font-semibold text-gray-900" id="avg-cpu">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center">
+                    <div class="p-3 bg-purple-100 rounded-lg">
+                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm text-gray-500">平均内存</p>
+                        <p class="text-2xl font-semibold text-gray-900" id="avg-memory">0MB</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white p-4 rounded-lg shadow mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <span class="text-sm font-medium text-gray-700">筛选:</span>
+                <button onclick="filterProcesses('all')" class="filter-btn filter-active px-3 py-1 text-sm rounded-full" data-filter="all">
+                    全部
+                </button>
+                <button onclick="filterProcesses('active')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="active">
+                    活跃
+                </button>
+                <button onclick="filterProcesses('idle')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="idle">
+                    空闲
+                </button>
+                <button onclick="filterProcesses('development')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="development">
+                    开发工具
+                </button>
+                <button onclick="filterProcesses('browser')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="browser">
+                    浏览器
+                </button>
+                <button onclick="filterProcesses('system')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="system">
+                    系统
+                </button>
+                <button onclick="filterProcesses('other')" class="filter-btn px-3 py-1 text-sm rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200" data-filter="other">
+                    其他
+                </button>
+
+                <div class="ml-auto flex items-center space-x-2">
+                    <label class="text-sm text-gray-700">排序:</label>
+                    <select id="sortSelect" onchange="sortProcesses()" class="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="cpu">CPU使用率</option>
+                        <option value="memory">内存使用</option>
+                        <option value="pid">进程ID</option>
+                        <option value="name">进程名</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Processes Table -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-medium text-gray-900">进程列表</h3>
+                    <div class="text-sm text-gray-500">
+                        显示 <span id="visible-count">0</span> / <span id="total-count">{{.ProcessCount}}</span> 个进程
+                    </div>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">进程名</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">命令</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CPU</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">内存</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">分类</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">运行时间</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="processes-table">
+                        {{range .Processes}}
+                        <tr class="process-row" data-status="{{.Status}}" data-category="{{.Category}}">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <div class="w-2 h-2 {{if eq .Status "active"}}status-active pulse{{else}}status-idle{{end}} rounded-full"></div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{.PID}}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900">{{.Name}}</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-sm text-gray-500 truncate max-w-xs" title="{{.Command}}">{{.Command}}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <div class="flex-1 mr-2">
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div class="bg-blue-600 h-2 rounded-full" style="width: {{min .CPUPercent 100}}%"></div>
+                                        </div>
+                                    </div>
+                                    <span class="text-sm text-gray-900">{{printf "%.1f" .CPUPercent}}%</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <div class="flex-1 mr-2">
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div class="bg-green-600 h-2 rounded-full" style="width: {{min .MemoryPercent 100}}%"></div>
+                                        </div>
+                                    </div>
+                                    <span class="text-sm text-gray-900">{{printf "%.1f" .MemoryMB}}MB</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full
+                                    {{if eq .Category "development"}}bg-blue-100 text-blue-800
+                                    {{else if eq .Category "browser"}}bg-purple-100 text-purple-800
+                                    {{else if eq .Category "system"}}bg-orange-100 text-orange-800
+                                    {{else}}bg-gray-100 text-gray-800{{end}}">
+                                    {{.Category}}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{.Uptime}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="8" class="px-6 py-12 text-center">
+                                <div class="flex flex-col items-center">
+                                    <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                                    </svg>
+                                    <h3 class="text-lg font-medium text-gray-900 mb-2">暂无进程数据</h3>
+                                    <p class="text-gray-500">等待进程监控数据收集...</p>
+                                </div>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let allProcesses = [];
+        let currentFilter = 'all';
+        let currentSort = 'cpu';
+
+        function refreshProcesses() {
+            fetch('/api/processes')
+                .then(response => response.json())
+                .then(data => {
+                    allProcesses = data.processes || [];
+                    updateProcessStats(allProcesses);
+                    filterProcesses(currentFilter);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updateProcessStats(processes) {
+            const activeCount = processes.filter(p => p.status === 'active').length;
+            const totalCpu = processes.reduce((sum, p) => sum + p.cpuPercent, 0);
+            const totalMemory = processes.reduce((sum, p) => sum + p.memoryMb, 0);
+
+            const avgCpu = processes.length > 0 ? totalCpu / processes.length : 0;
+            const avgMemory = processes.length > 0 ? totalMemory / processes.length : 0;
+
+            document.getElementById('total-processes').textContent = processes.length;
+            document.getElementById('active-processes').textContent = activeCount;
+            document.getElementById('avg-cpu').textContent = avgCpu.toFixed(1) + '%';
+            document.getElementById('avg-memory').textContent = avgMemory.toFixed(1) + 'MB';
+            document.getElementById('total-count').textContent = processes.length;
+        }
+
+        function filterProcesses(filter) {
+            currentFilter = filter;
+
+            // Update filter buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                if (btn.dataset.filter === filter) {
+                    btn.classList.remove('bg-gray-100', 'text-gray-700');
+                    btn.classList.add('filter-active');
+                } else {
+                    btn.classList.remove('filter-active');
+                    btn.classList.add('bg-gray-100', 'text-gray-700');
+                }
+            });
+
+            let filteredProcesses = allProcesses;
+
+            if (filter !== 'all') {
+                filteredProcesses = allProcesses.filter(process => {
+                    if (filter === 'active' || filter === 'idle') {
+                        return process.status === filter;
+                    } else {
+                        return process.category === filter;
+                    }
+                });
+            }
+
+            sortAndDisplayProcesses(filteredProcesses);
+        }
+
+        function sortProcesses() {
+            currentSort = document.getElementById('sortSelect').value;
+            filterProcesses(currentFilter);
+        }
+
+        function sortAndDisplayProcesses(processes) {
+            // Sort processes
+            processes.sort((a, b) => {
+                switch (currentSort) {
+                    case 'cpu':
+                        return b.cpuPercent - a.cpuPercent;
+                    case 'memory':
+                        return b.memoryMb - a.memoryMb;
+                    case 'pid':
+                        return a.pid - b.pid;
+                    case 'name':
+                        return a.name.localeCompare(b.name);
+                    default:
+                        return 0;
+                }
+            });
+
+            // Display processes
+            const tableBody = document.getElementById('processes-table');
+
+            if (processes.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-6 py-12 text-center">
+                            <div class="flex flex-col items-center">
+                                <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                                </svg>
+                                <h3 class="text-lg font-medium text-gray-900 mb-2">暂无匹配的进程</h3>
+                                <p class="text-gray-500">尝试调整筛选条件</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                document.getElementById('visible-count').textContent = '0';
+                return;
+            }
+
+            tableBody.innerHTML = processes.map(process => `
+                <tr class="process-row" data-status="${process.status}" data-category="${process.category}">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <div class="w-2 h-2 ${process.status === 'active' ? 'status-active pulse' : 'status-idle'} rounded-full"></div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${process.pid}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">${process.name}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-500 truncate max-w-xs" title="${process.command}">${process.command}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <div class="flex-1 mr-2">
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${Math.min(process.cpuPercent, 100)}%"></div>
+                                </div>
+                            </div>
+                            <span class="text-sm text-gray-900">${process.cpuPercent.toFixed(1)}%</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <div class="flex-1 mr-2">
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="bg-green-600 h-2 rounded-full" style="width: ${Math.min(process.memoryPercent, 100)}%"></div>
+                                </div>
+                            </div>
+                            <span class="text-sm text-gray-900">${process.memoryMb.toFixed(1)}MB</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full
+                            ${process.category === 'development' ? 'bg-blue-100 text-blue-800' :
+                              process.category === 'browser' ? 'bg-purple-100 text-purple-800' :
+                              process.category === 'system' ? 'bg-orange-100 text-orange-800' :
+                              'bg-gray-100 text-gray-800'}">
+                            ${process.category}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${process.uptime || 'N/A'}</td>
+                </tr>
+            `).join('');
+
+            document.getElementById('visible-count').textContent = processes.length;
+        }
+
+        // Auto-refresh every 3 seconds
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshProcesses();
+            setInterval(refreshProcesses, 3000);
+        });
+    </script>
+</body>
+</html>
