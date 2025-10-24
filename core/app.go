@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +42,9 @@ type App struct {
 
 	// Alert manager
 	alertManager *AlertManager
+
+	// Task management
+	taskManager *TaskManager
 }
 
 // NewApp creates a new application instance
@@ -62,6 +66,16 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		log.Printf("Alert manager initialized with %d rules", len(config.Alerts.Rules))
 	}
 
+	// Create task manager
+	taskConfig := TaskConfig{
+		MaxConcurrentTasks: 10,        // Default: max 10 concurrent tasks
+		DefaultTimeout:    30 * time.Minute, // Default: 30 minutes timeout
+		AutoCleanup:      true,         // Auto cleanup old tasks
+		ProcessTreeDepth: 10,           // Track up to 10 levels deep
+	}
+	dataDir := filepath.Dir(dataFile)
+	taskManager := NewTaskManager(dataDir, taskConfig)
+
 	return &App{
 		DataFile:      dataFile,
 		Interval:      interval,
@@ -69,6 +83,7 @@ func NewApp(dataFile string, interval time.Duration, config Config) *App {
 		storage:       storage,
 		dockerMonitor: dockerMonitor,
 		alertManager:  alertManager,
+		taskManager:   taskManager,
 	}
 }
 
@@ -699,4 +714,46 @@ func (a *App) collectDockerContainerRecords() []ResourceRecord {
 	}
 
 	return records
+}
+
+// ============== Task Management Public Interface ==============
+
+// GetTaskManager returns the task manager instance
+func (a *App) GetTaskManager() *TaskManager {
+	return a.taskManager
+}
+
+// CreateTask creates a new task with the given name and command
+func (a *App) CreateTask(name, command string, priority int) (*Task, error) {
+	return a.taskManager.CreateTask(name, command, priority)
+}
+
+// StartTask starts a task by ID
+func (a *App) StartTask(taskID int) error {
+	return a.taskManager.StartTask(taskID)
+}
+
+// StopTask stops a running task by ID
+func (a *App) StopTask(taskID int) error {
+	return a.taskManager.StopTask(taskID)
+}
+
+// GetTask retrieves a task by ID
+func (a *App) GetTask(taskID int) (*Task, error) {
+	return a.taskManager.GetTask(taskID)
+}
+
+// ListTasks returns all tasks, optionally filtered by status
+func (a *App) ListTasks(statusFilter TaskStatus) ([]*Task, error) {
+	return a.taskManager.ListTasks(statusFilter)
+}
+
+// DeleteTask removes a task by ID
+func (a *App) DeleteTask(taskID int) error {
+	return a.taskManager.DeleteTask(taskID)
+}
+
+// GetTaskEvents returns the task events channel for monitoring
+func (a *App) GetTaskEvents() <-chan TaskEvent {
+	return a.taskManager.GetTaskEvents()
 }

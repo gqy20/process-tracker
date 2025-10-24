@@ -58,6 +58,10 @@ func main() {
 		handleStats(config)
 	case "web":
 		handleWeb(config)
+	case "run":
+		handleRun(config)
+	case "task":
+		handleTask(config)
 	case "help", "-h":
 		printUsage()
 	case "version", "-v":
@@ -74,12 +78,16 @@ func printUsage() {
 	fmt.Printf("Process Tracker v%s\n\n", Version)
 	fmt.Printf("用法:\n")
 	fmt.Printf("  process-tracker <command> [options]\n\n")
-	fmt.Printf("命令:\n")
+	fmt.Printf("核心命令:\n")
 	fmt.Printf("  start   启动监控\n")
 	fmt.Printf("  stop    停止监控\n")
 	fmt.Printf("  status  状态\n")
 	fmt.Printf("  stats   统计\n")
-	fmt.Printf("  web     Web界面\n")
+	fmt.Printf("  web     Web界面\n\n")
+	fmt.Printf("任务管理:\n")
+	fmt.Printf("  run     运行任务\n")
+	fmt.Printf("  task    任务管理\n\n")
+	fmt.Printf("帮助:\n")
 	fmt.Printf("  help    帮助\n")
 	fmt.Printf("  version 版本\n\n")
 	fmt.Printf("选项:\n")
@@ -91,7 +99,9 @@ func printUsage() {
 	fmt.Printf("  -m      本月统计\n\n")
 	fmt.Printf("示例:\n")
 	fmt.Printf("  process-tracker start\n")
-	fmt.Printf("  process-tracker start -i 10 -w\n")
+	fmt.Printf("  process-tracker run 'sleep 60'\n")
+	fmt.Printf("  process-tracker task list\n")
+	fmt.Printf("  process-tracker task stop 1\n")
 	fmt.Printf("  process-tracker stats -w\n")
 	fmt.Printf("  process-tracker web -p 9090\n")
 }
@@ -303,5 +313,288 @@ func handleStatus(daemon *core.DaemonManager) {
 		}
 	} else {
 		fmt.Printf("状态: 🔴 已停止\n")
+	}
+}
+
+// handleRun handles the run command - create and start a task
+func handleRun(config core.Config) {
+	if len(os.Args) < 3 {
+		fmt.Println("❌ 用法: process-tracker run '<command>' [name]")
+		fmt.Println("示例: process-tracker run 'sleep 60'")
+		fmt.Println("      process-tracker run 'make build' '编译项目'")
+		os.Exit(1)
+	}
+
+	command := os.Args[2]
+	taskName := command
+	if len(os.Args) > 3 {
+		taskName = os.Args[3]
+	}
+
+	// Create app
+	dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
+	app := NewApp(dataFile, 5*time.Second, config)
+
+	if err := app.Initialize(); err != nil {
+		log.Fatalf("初始化失败: %v", err)
+	}
+
+	// Create and start task
+	task, err := app.CreateTask(taskName, command, 1)
+	if err != nil {
+		log.Fatalf("创建任务失败: %v", err)
+	}
+
+	fmt.Printf("✅ 任务已创建: %s (ID: %d)\n", task.Name, task.ID)
+
+	if err := app.StartTask(task.ID); err != nil {
+		log.Fatalf("启动任务失败: %v", err)
+	}
+
+	fmt.Printf("🚀 任务已启动: %s (PID: %d)\n", task.Name, task.RootPID)
+	fmt.Printf("💡 使用 'process-tracker task list' 查看任务状态\n")
+	fmt.Printf("💡 使用 'process-tracker task stop %d' 停止任务\n", task.ID)
+}
+
+// handleTask handles the task command - task management
+func handleTask(config core.Config) {
+	if len(os.Args) < 3 {
+		fmt.Println("❌ 用法: process-tracker task <action> [args]")
+		fmt.Println("")
+		fmt.Println("操作:")
+		fmt.Println("  list           列出所有任务")
+		fmt.Println("  running        列出运行中的任务")
+		fmt.Println("  stop <id>      停止指定任务")
+		fmt.Println("  delete <id>    删除指定任务")
+		fmt.Println("  show <id>      显示任务详情")
+		fmt.Println("")
+		fmt.Println("示例:")
+		fmt.Println("  process-tracker task list")
+		fmt.Println("  process-tracker task stop 1")
+		fmt.Println("  process-tracker task delete 1")
+		os.Exit(1)
+	}
+
+	action := os.Args[2]
+
+	// Create app
+	dataFile := os.ExpandEnv("$HOME/.process-tracker/process-tracker.log")
+	app := NewApp(dataFile, 5*time.Second, config)
+
+	if err := app.Initialize(); err != nil {
+		log.Fatalf("初始化失败: %v", err)
+	}
+
+	switch action {
+	case "list":
+		handleTaskList(app)
+	case "running":
+		handleTaskList(app, core.StatusRunning)
+	case "stop":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 用法: process-tracker task stop <id>")
+			os.Exit(1)
+		}
+		taskID, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			fmt.Println("❌ 任务ID必须是数字")
+			os.Exit(1)
+		}
+		handleTaskStop(app, taskID)
+	case "delete":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 用法: process-tracker task delete <id>")
+			os.Exit(1)
+		}
+		taskID, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			fmt.Println("❌ 任务ID必须是数字")
+			os.Exit(1)
+		}
+		handleTaskDelete(app, taskID)
+	case "show":
+		if len(os.Args) < 4 {
+			fmt.Println("❌ 用法: process-tracker task show <id>")
+			os.Exit(1)
+		}
+		taskID, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			fmt.Println("❌ 任务ID必须是数字")
+			os.Exit(1)
+		}
+		handleTaskShow(app, taskID)
+	default:
+		fmt.Printf("❌ 未知操作: %s\n", action)
+		os.Exit(1)
+	}
+}
+
+// handleTaskList displays task list
+func handleTaskList(app *App, statusFilter ...core.TaskStatus) {
+	var filter core.TaskStatus
+	if len(statusFilter) > 0 {
+		filter = statusFilter[0]
+	}
+
+	tasks, err := app.ListTasks(filter)
+	if err != nil {
+		log.Fatalf("获取任务列表失败: %v", err)
+	}
+
+	if len(tasks) == 0 {
+		if filter != "" {
+			fmt.Printf("📝 没有%s状态的任务\n", filter)
+		} else {
+			fmt.Println("📝 没有任务")
+		}
+		return
+	}
+
+	fmt.Println("📋 任务列表")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("%-6s %-20s %-12s %-10s %-10s %-15s %s\n", "ID", "名称", "状态", "PID", "进程数", "创建时间", "命令")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	for _, task := range tasks {
+		statusIcon := getStatusIcon(task.Status)
+		pidStr := "-"
+		if task.RootPID > 0 {
+			pidStr = fmt.Sprintf("%d", task.RootPID)
+		}
+
+		fmt.Printf("%-6d %-20s %-12s %-10s %-10d %-15s %s\n",
+			task.ID,
+			truncateString(task.Name, 20),
+			fmt.Sprintf("%s%s", statusIcon, task.Status),
+			pidStr,
+			task.ProcessCount,
+			task.CreatedAt.Format("15:04:05"),
+			truncateString(task.Command, 30))
+	}
+
+	fmt.Printf("\n共 %d 个任务\n", len(tasks))
+}
+
+// handleTaskStop stops a task
+func handleTaskStop(app *App, taskID int) {
+	task, err := app.GetTask(taskID)
+	if err != nil {
+		log.Fatalf("获取任务失败: %v", err)
+	}
+
+	if task.Status != core.StatusRunning {
+		fmt.Printf("⚠️  任务 %d 状态为 %s，无需停止\n", taskID, task.Status)
+		return
+	}
+
+	if err := app.StopTask(taskID); err != nil {
+		log.Fatalf("停止任务失败: %v", err)
+	}
+
+	fmt.Printf("✅ 任务 %d (%s) 已停止\n", taskID, task.Name)
+}
+
+// handleTaskDelete deletes a task
+func handleTaskDelete(app *App, taskID int) {
+	task, err := app.GetTask(taskID)
+	if err != nil {
+		log.Fatalf("获取任务失败: %v", err)
+	}
+
+	if err := app.DeleteTask(taskID); err != nil {
+		log.Fatalf("删除任务失败: %v", err)
+	}
+
+	fmt.Printf("✅ 任务 %d (%s) 已删除\n", taskID, task.Name)
+}
+
+// handleTaskShow shows task details
+func handleTaskShow(app *App, taskID int) {
+	task, err := app.GetTask(taskID)
+	if err != nil {
+		log.Fatalf("获取任务失败: %v", err)
+	}
+
+	fmt.Printf("📋 任务详情\n")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("ID:       %d\n", task.ID)
+	fmt.Printf("名称:     %s\n", task.Name)
+	fmt.Printf("状态:     %s%s\n", getStatusIcon(task.Status), task.Status)
+	fmt.Printf("命令:     %s\n", task.Command)
+	fmt.Printf("优先级:   %d\n", task.Priority)
+
+	if task.RootPID > 0 {
+		fmt.Printf("根PID:    %d\n", task.RootPID)
+	}
+	fmt.Printf("进程数:   %d\n", task.ProcessCount)
+
+	fmt.Printf("创建时间: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+	if task.StartedAt != nil {
+		fmt.Printf("启动时间: %s\n", task.StartedAt.Format("2006-01-02 15:04:05"))
+	}
+	if task.CompletedAt != nil {
+		fmt.Printf("完成时间: %s\n", task.CompletedAt.Format("2006-01-02 15:04:05"))
+	}
+
+	if task.TotalCPU > 0 || task.TotalMemory > 0 {
+		fmt.Printf("资源使用:\n")
+		if task.TotalCPU > 0 {
+			fmt.Printf("  CPU:  %.1f%%\n", task.TotalCPU)
+		}
+		if task.TotalMemory > 0 {
+			fmt.Printf("  内存: %s\n", formatBytes(task.TotalMemory))
+		}
+		if task.TotalDiskIO > 0 {
+			fmt.Printf("  磁盘: %s\n", formatBytes(task.TotalDiskIO))
+		}
+		if task.TotalNetIO > 0 {
+			fmt.Printf("  网络: %s\n", formatBytes(task.TotalNetIO))
+		}
+	}
+
+	if task.ErrorMessage != "" {
+		fmt.Printf("错误: %s\n", task.ErrorMessage)
+	}
+	if task.ExitCode != nil {
+		fmt.Printf("退出码: %d\n", *task.ExitCode)
+	}
+}
+
+// getStatusIcon returns status icon
+func getStatusIcon(status core.TaskStatus) string {
+	switch status {
+	case core.StatusPending:
+		return "⏳ "
+	case core.StatusRunning:
+		return "🟢 "
+	case core.StatusCompleted:
+		return "✅ "
+	case core.StatusFailed:
+		return "❌ "
+	case core.StatusStopped:
+		return "🛑 "
+	default:
+		return "❓ "
+	}
+}
+
+// truncateString truncates string to specified length
+func truncateString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
+// formatBytes formats bytes/MB value with appropriate unit
+func formatBytes(mb float64) string {
+	if mb >= 1024*1024 { // >= 1TB
+		return fmt.Sprintf("%.2fTB", mb/1024/1024)
+	} else if mb >= 1024 { // >= 1GB
+		return fmt.Sprintf("%.2fGB", mb/1024)
+	} else if mb >= 1 {
+		return fmt.Sprintf("%.1fMB", mb)
+	} else {
+		return fmt.Sprintf("%.2fKB", mb*1024)
 	}
 }

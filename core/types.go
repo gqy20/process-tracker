@@ -226,3 +226,59 @@ func ValidateStorageConfig(config StorageConfig) error {
 func ValidateConfig(config Config) error {
 	return ValidateStorageConfig(config.Storage)
 }
+
+// ============== Task Management Structures ==============
+
+// TaskStatus represents the current status of a task
+type TaskStatus string
+
+const (
+	StatusPending   TaskStatus = "pending"    // Task is queued but not started
+	StatusRunning   TaskStatus = "running"    // Task is currently running
+	StatusCompleted TaskStatus = "completed"  // Task completed successfully
+	StatusFailed    TaskStatus = "failed"     // Task failed with error
+	StatusStopped   TaskStatus = "stopped"    // Task was manually stopped
+	StatusUnknown   TaskStatus = "unknown"    // Task status cannot be determined
+)
+
+// Task represents a managed task with one or more processes
+type Task struct {
+	ID            int                   `json:"id"`              // Unique task identifier
+	Name          string                `json:"name"`            // Human-readable task name
+	Command       string                `json:"command"`         // Command that was executed
+	Status        TaskStatus            `json:"status"`          // Current task status
+	Priority      int                   `json:"priority"`        // Task priority (1-10, higher = more important)
+	RootPID       int32                 `json:"root_pid"`        // PID of the root process
+	ProcessCount  int                   `json:"process_count"`   // Total number of processes in this task
+
+	// Timestamps
+	CreatedAt     time.Time            `json:"created_at"`      // When task was created
+	StartedAt     *time.Time           `json:"started_at"`      // When task started running
+	CompletedAt   *time.Time           `json:"completed_at"`    // When task completed (or failed)
+
+	// Process tracking
+	ProcessTree   *ProcessTreeNode     `json:"process_tree"`    // Current process tree
+	PIDMap        map[int32]int        `json:"-"`               // PID -> Task ID mapping (internal use)
+
+	// Resource usage (aggregated from all processes)
+	TotalCPU      float64              `json:"total_cpu"`       // Total CPU usage (normalized percentage)
+	TotalMemory   float64              `json:"total_memory"`    // Total memory usage (MB)
+	TotalDiskIO   float64              `json:"total_disk_io"`   // Total disk I/O (MB)
+	TotalNetIO    float64              `json:"total_net_io"`    // Total network I/O (KB)
+
+	// Exit information
+	ExitCode      *int                 `json:"exit_code"`       // Exit code of the root process
+	ErrorMessage  string               `json:"error_message"`   // Error message if task failed
+
+	// Tags and metadata
+	Tags          []string             `json:"tags"`            // User-defined tags
+	WorkDir       string               `json:"work_dir"`        // Working directory where task was started
+}
+
+// TaskConfig represents task management configuration
+type TaskConfig struct {
+	MaxConcurrentTasks int               `yaml:"max_concurrent_tasks"` // Maximum concurrent tasks
+	DefaultTimeout    time.Duration      `yaml:"default_timeout"`     // Default task timeout
+	AutoCleanup        bool               `yaml:"auto_cleanup"`        // Auto cleanup completed tasks
+	ProcessTreeDepth   int               `yaml:"process_tree_depth"`  // Maximum process tree depth to track
+}
