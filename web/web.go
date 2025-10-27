@@ -65,9 +65,22 @@ type ProcessInfo struct {
 	Uptime        string
 }
 
+// min returns the minimum of two float64 values
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // SetupWebRoutes configures web interface routes
 func SetupWebRoutes(router *gin.Engine, app *core.App) {
 	webHandler := NewWebHandler(app)
+
+	// Create template functions
+	funcMap := template.FuncMap{
+		"min": min,
+	}
 
 	// Load HTML templates
 	templateFiles := []string{
@@ -76,11 +89,10 @@ func SetupWebRoutes(router *gin.Engine, app *core.App) {
 		"web/templates/processes.html",
 	}
 
-	templates := template.Must(template.ParseFiles(templateFiles...))
+	templates := template.Must(template.New("").Funcs(funcMap).ParseFiles(templateFiles...))
 	router.SetHTMLTemplate(templates)
 
 	// Web interface routes
-	router.GET("/", webHandler.Dashboard)
 	router.GET("/dashboard", webHandler.Dashboard)
 	router.GET("/tasks", webHandler.Tasks)
 	router.GET("/processes", webHandler.Processes)
@@ -420,11 +432,19 @@ func (h *WebHandler) prepareDashboardData() DashboardData {
 		Uptime:      "2d 15h 30m", // Mock data
 	}
 
+	// Safely get top 10 processes (handle empty slice)
+	var topProcesses []ProcessInfo
+	if len(processInfos) > 10 {
+		topProcesses = processInfos[:10]
+	} else {
+		topProcesses = processInfos
+	}
+
 	return DashboardData{
 		Title:       "系统概览 - Process Tracker",
 		SystemStats: systemStats,
 		Tasks:       taskInfos,
-		Processes:   processInfos[:10], // Top 10 processes
+		Processes:   topProcesses, // Top 10 processes (safe)
 		GeneratedAt: time.Now(),
 	}
 }

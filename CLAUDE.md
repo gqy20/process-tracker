@@ -4,46 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Process Tracker is a Go-based system monitoring tool that tracks process usage statistics on Linux servers. It provides detailed insights into CPU, memory, disk I/O, and network usage for all running processes, with configurable reporting and storage management.
+Process Tracker is a Go-based system monitoring tool that tracks process usage statistics on Linux servers. It provides detailed insights into CPU, memory, disk I/O, and network usage for all running processes, with configurable reporting and storage management. The tool features a modern web interface, task management system, and support for both CSV and SQLite storage backends.
 
 ## Build and Development Commands
 
 ### Building the Application
 ```bash
-# Build for current platform
+# Simple build for current platform
 go build -o process-tracker main.go
 
-# Build with version (for releases)
-go build -ldflags="-X main.Version=0.3.7" -o process-tracker main.go
+# Build with version information
+go build -ldflags="-X main.Version=0.4.1" -o process-tracker main.go
 
-# Cross-platform build script
+# Cross-platform build script (static compilation)
 ./build.sh
-```
 
-### Running the Application
-```bash
-# Start monitoring with default settings
-./process-tracker start
-
-# Start with custom configuration
-./process-tracker start --config /path/to/config.yaml --data-file /path/to/data.log
-
-# View statistics
-./process-tracker today    # Today's usage
-./process-tracker week     # Weekly summary  
-./process-tracker month    # Monthly trends
-./process-tracker details  # Detailed statistics
-
-# Export data
-./process-tracker export
-
-# Cleanup old data
-./process-tracker cleanup
-```
-
-### Testing
-```bash
-# Run all tests
+# Run tests
 go test ./...
 
 # Test specific package
@@ -53,118 +29,240 @@ go test ./core
 go test -cover ./...
 ```
 
+### Core Commands
+```bash
+# Process management (5 core commands following simple design)
+./process-tracker start [-i N] [-w] [-p PORT]  # Start monitoring with optional web
+./process-tracker stop                         # Stop monitoring
+./process-tracker status                       # Check running status
+./process-tracker stats [-d|-w|-m]             # View statistics (day/week/month)
+./process-tracker web [-p PORT] [-h HOST]      # Start web interface only
+
+# Advanced features
+./process-tracker migrate-to-sqlite [--sqlite-path PATH]  # Migrate CSV to SQLite
+```
+
+### Web Interface
+- Default URL: http://localhost:8080
+- Real-time process monitoring dashboard
+- Historical data visualization
+- Task management interface
+
 ## Architecture Overview
 
 ### Core Components
 
-**main.go** (728 lines) - CLI Interface and Application Orchestration
-- Command line argument parsing and routing
-- Application lifecycle management
-- Signal handling and graceful shutdown
-- Integration with core monitoring functionality
+**main.go** - CLI Interface and Application Orchestration
+- 5-command interface following simplicity principles (start/stop/status/stats/web)
+- Global options handling (port, interval, format, filter, sort, limit, offset)
+- Application lifecycle management with graceful shutdown
+- Integration with core monitoring and web functionality
 
-**core/app.go** (628 lines) - Monitoring Engine
-- Process data collection and buffering
-- Resource record management with write-back caching
-- Integration with storage management system
-- Network statistics estimation based on connection patterns
+**core/app.go** - Central Monitoring Engine
+- Process data collection with configurable intervals
+- Task management integration through TaskManager
+- Storage abstraction layer (CSV/SQLite support)
+- Real-time monitoring with buffering optimization
 
-**core/types.go** (678 lines) - Data Structures and Configuration
-- `ResourceRecord`: Primary data structure for process metrics
-- `Config`: Application configuration with YAML support
-- `StorageConfig`: File rotation and compression settings
-- Data format detection and validation logic
+**core/task_manager.go** - Task Management System
+- Process tracking and task lifecycle management
+- PID-to-Task mapping for fast lookups
+- Process tree management with parent-child relationships
+- Event-driven architecture with task events
 
-**core/storage_manager.go** (337 lines) - Storage Management System
-- File rotation when exceeding size limits
-- Automatic compression of old files (.gz format)
-- Configurable retention policies and cleanup
-- Backward compatibility with existing file formats
+**core/types.go** - Data Structures and Configuration
+- `ProcessInfo`: Core process monitoring data structure
+- `Config`: YAML-based configuration with sensible defaults
+- `Task` and `TaskConfig`: Task management data structures
+- Support for multiple storage backends and notifiers
 
-### Key Design Patterns
+**api/v1/** - REST API Layer
+- Router with comprehensive middleware (CORS, security, validation)
+- TaskHandler for task management endpoints
+- ProcessHandler for process monitoring endpoints
+- StatsHandler for statistics and analytics
+- JSON-based REST API with proper error handling
 
-**Dependency Injection**: The main application creates and injects dependencies into the core App structure, promoting testability and modularity.
+**core/storage_*.go** - Storage Abstraction
+- `storage_interface.go`: Common storage interface
+- `storage.go`: CSV file storage implementation
+- `storage_sqlite.go`: SQLite database storage
+- `storage_manager.go`: File rotation and lifecycle management
 
-**Buffered Writing**: Uses in-memory buffering (100 records) with periodic flushing to optimize I/O performance and reduce disk writes.
+### Modern Architecture Features
 
-**Storage Abstraction**: Supports both traditional file writing and new storage management through a unified interface, maintaining backward compatibility.
+**Task Management System**:
+- Persistent task tracking with process tree relationships
+- Event-driven communication between components
+- Daemon management for background operations
 
-**Configuration Layer**: YAML-based configuration with sensible defaults, supporting hot-reloadable settings for storage management.
+**Multi-Backend Storage**:
+- CSV storage for simplicity and compatibility
+- SQLite storage for performance and complex queries
+- Seamless migration between storage types
+
+**Web Interface Integration**:
+- Gin-based REST API with comprehensive middleware
+- Real-time process monitoring dashboard
+- Task management through web interface
+- Statistics visualization and export capabilities
+
+**Notification System**:
+- Multiple notifier support (DingTalk, WeChat, Feishu, Webhook)
+- Configurable alerting rules and thresholds
+- Docker container monitoring integration
 
 ## Data Storage Architecture
 
-### File Format
-- CSV-style format with comma-separated values
-- Timestamp, process name, CPU%, memory MB, threads, disk read/write MB, network sent/received KB, active status, command, working directory, category
-- Supports multiple data format versions for backward compatibility
+### Dual Storage Backend Support
 
-### Storage Management (v0.3.0+)
-The application implements intelligent storage management to prevent unlimited log growth:
+**CSV Storage (Default)**:
+- File path: `~/.process-tracker/process-tracker.log`
+- Simple, human-readable format with comma-separated values
+- Fields: timestamp, process name, CPU%, memory MB, threads, disk I/O, network I/O, status, command, working directory, category
+- Backward compatibility with existing data formats
 
-1. **File Rotation**: Automatically creates new files when size exceeds `max_file_size_mb`
-2. **Compression**: Files older than `compress_after_days` are automatically compressed to .gz format
-3. **Cleanup**: Files older than `cleanup_after_days` are automatically removed
-4. **Retention**: Maintains maximum of `max_files` to control storage usage
+**SQLite Storage (Recommended for production)**:
+- Database path: `~/.process-tracker/process-tracker.db`
+- High performance with complex query support
+- WAL mode enabled for better concurrency
+- Configurable cache size for performance tuning
 
-### Configuration Example
+### Storage Configuration
 ```yaml
 storage:
-  max_file_size_mb: 50      # Rotate files at 50MB (optimized default)
-  max_files: 5             # Keep 5 files maximum (optimized default)
-  compress_after_days: 1   # Compress after 1 day (optimized default)
-  cleanup_after_days: 7    # Delete after 7 days (optimized default)
-  auto_cleanup: true       # Enable automatic management
+  type: "sqlite"              # Storage type: csv/sqlite
+  sqlite_path: "~/.process-tracker/process-tracker.db"
+  sqlite_wal: true           # Enable WAL mode
+  sqlite_cache_size: 2000    # Cache size in pages
+  max_file_size_mb: 50       # Max file size (CSV only)
+  keep_days: 7               # Data retention period
 ```
+
+### Migration and Management
+```bash
+# Migrate from CSV to SQLite (preserves existing data)
+./process-tracker migrate-to-sqlite
+
+# Custom migration path
+./process-tracker migrate-to-sqlite --sqlite-path /custom/path.db
+```
+
+### File Rotation (CSV backend)
+- Automatic rotation when exceeding `max_file_size_mb`
+- Configurable retention policies and cleanup
+- Backward compatibility with historical data formats
 
 ## Process Monitoring Strategy
 
-### Data Collection
-- Uses `gopsutil/v3` for cross-platform process information
-- Collects CPU, memory, thread count, disk I/O, and network statistics
-- Implements smart network usage estimation based on connection patterns
-- Filters out system processes and focuses on user applications
+### Data Collection and Monitoring
+- Uses `gopsutil/v3` for cross-platform process information gathering
+- Comprehensive metrics: CPU%, memory MB, threads, disk I/O, network I/O, process uptime
+- Configurable monitoring intervals (default: 5 seconds)
+- Smart filtering focusing on user applications vs system processes
+- Docker container monitoring with integration support
 
-### Categorization System
-- Built-in rules for categorizing processes (development, browsers, system tools)
-- Smart category detection based on command paths and process names
-- Configurable category mappings through YAML configuration
+### Task Management Integration
+- Process tree tracking with parent-child relationships
+- Event-driven task lifecycle management
+- Persistent task storage with state recovery
+- Background daemon management for long-running tasks
 
 ### Performance Optimizations
-- Buffered writing reduces I/O operations from every 5 seconds to batch operations
-- Memory-efficient data structures minimize allocation overhead
-- Configurable sampling intervals balance detail with performance impact
+- In-memory buffering to reduce I/O overhead
+- Configurable sampling intervals for performance vs detail balance
+- SQLite WAL mode for better concurrent access
+- Efficient PID-to-Task mapping for fast lookups
 
 ## Configuration Management
 
-### Default Configuration Path
-- `~/.process-tracker/config.yaml` - User-level configuration
-- `~/.process-tracker/process-tracker.log` - Main log file
-- Supports environment variable expansion for paths
+### Default Configuration Structure
+```yaml
+# Primary configuration location
+~/.process-tracker/config.yaml
 
-### Directory Structure
-```
-~/.process-tracker/
-├── config.yaml                    # Configuration file
-├── process-tracker.log            # Main log file
-├── process-tracker.log.1          # Rotated log file
-├── process-tracker.log.2          # Rotated log file
-├── process-tracker.log.3.gz      # Compressed old log
-└── legacy-data-backup.log        # Backup of historical data (if any)
+# Data files (location varies by storage type)
+~/.process-tracker/process-tracker.log     # CSV storage
+~/.process-tracker/process-tracker.db     # SQLite storage
 ```
 
 ### Key Configuration Sections
-- `statistics_granularity`: Controls detail level (simple/detailed/full)
-- `show_commands/show_working_dirs`: Display options for output formatting
-- `storage`: File management and retention policies
-- `use_smart_categories`: Enable intelligent process categorization
+```yaml
+# Core monitoring settings
+monitoring:
+  interval: "5s"              # Monitoring frequency
+  enable_smart_categories: true  # Intelligent categorization
+
+# Storage backend configuration
+storage:
+  type: "sqlite"              # csv or sqlite
+  sqlite_path: "~/.process-tracker/process-tracker.db"
+  max_file_size_mb: 50        # CSV rotation size
+  keep_days: 7                # Data retention
+
+# Web interface
+web:
+  enabled: true               # Enable web dashboard
+  host: "0.0.0.0"            # Bind address
+  port: "8080"               # Port number
+
+# Alert and notification system
+alerts:
+  enabled: false              # Alert system toggle
+  cpu_threshold: 80.0        # CPU usage alert threshold
+  memory_threshold: 80.0     # Memory usage alert threshold
+
+notifiers:
+  dingtalk:
+    enabled: false
+    webhook_url: ""
+  wechat:
+    enabled: false
+    webhook_url: ""
+```
+
+## API Architecture
+
+### REST API Endpoints
+- **GET /api/v1/processes** - List current processes with filtering
+- **GET /api/v1/stats** - Retrieve statistical summaries
+- **GET /api/v1/tasks** - List managed tasks
+- **POST /api/v1/tasks** - Create new tasks
+- **GET /api/v1/tasks/:id** - Get task details
+- **DELETE /api/v1/tasks/:id** - Stop and remove tasks
+
+### Middleware Stack
+- Request ID generation and tracing
+- CORS handling for cross-origin requests
+- Security headers (X-Frame-Options, CSP, etc.)
+- Request/response logging
+- Error handling and recovery
+- API version validation
 
 ## Development Philosophy
 
-Following Dave Cheney's Go programming principles:
-- **Simple over complex**: Choose the simplest solution that works
-- **Readable is correct**: Code should be clear and self-documenting
-- **Errors are values**: Handle every error explicitly
-- **Less is more**: Minimize code to reduce bug surface area
-- **Small interfaces**: Keep interfaces minimal and focused
+Following Dave Cheney's Go programming principles with modern additions:
 
-The codebase emphasizes maintainability through clear separation of concerns, comprehensive error handling, and backward compatibility.
+**Simplicity First**:
+- 5-command CLI interface (start/stop/status/stats/web)
+- Minimal configuration with intelligent defaults
+- Clear separation of concerns
+
+**Reliability and Performance**:
+- Comprehensive error handling at all levels
+- Buffered operations for I/O efficiency
+- Static compilation for maximum portability
+- Event-driven architecture for scalability
+
+**Maintainability**:
+- Interface-based design for testability
+- Clear module boundaries (core/api/web)
+- Comprehensive test coverage
+- Backward compatibility preservation
+
+**Modern Features**:
+- REST API with comprehensive middleware
+- Web interface for intuitive management
+- Multi-backend storage support
+- Docker and container integration
+- Real-time monitoring capabilities
